@@ -166,21 +166,91 @@ gamesRouter.post(
 );
 
 /**
- * ── 3. Higher or Lower: Generate Questions ────────────────────────────────────
- * GET /api/games/higher-lower/generate
- * Generates 10 pairs of facts to compare without numerical hints or units.
+ * ── 3. Higher or Lower: Question Pool Cache ──────────────────────────────────
+ * POST /api/games/higher-lower/generate (also supports GET)
+ *
+ * Step 1: Query Supabase for 10 questions from hl_questions where is_used = false.
+ * Step 2: If 10 questions found, instantly return them without calling AI.
+ * Step 3: If fewer than 10 questions available, call Gemini to generate 20 questions.
+ * Step 4: Save all 20 newly generated questions to hl_questions table.
+ * Step 5: Return the first 10 to the frontend.
  */
+const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
+  try {
+    // Step 1: Query Supabase for 10 unused questions
+    const { data: cached, error: queryError } = await supabaseAdmin
+      .from('hl_questions')
+      .select('*')
+      .eq('is_used', false)
+      .limit(10);
+
+    // Step 2: If it finds 10 questions, instantly return them. Do NOT call the AI.
+    if (!queryError && cached && cached.length >= 10) {
+      console.log('[HigherLower] Cache hit! Returning 10 questions directly from Supabase pool.');
+
+      // Mark these 10 questions as used so pool advances
+      const ids = cached.map((q) => q.id);
+      await supabaseAdmin
+        .from('hl_questions')
+        .update({ is_used: true })
+        .in('id', ids);
+
+      const formatted = cached.map((q) => ({
+        factA: q.fact_a,
+        factB: q.fact_b,
+        answer: q.answer,
+        explanation: q.explanation,
+      }));
+
+      return res.json(formatted);
+    }
+
+    // Step 3: Fewer than 10 in cache -> Generate 20 questions via Gemini
+    console.log('[HigherLower] Cache pool has <10 questions. Generating 20 questions via Gemini API...');
+    const generated20 = await generateHigherLowerQuestions(20);
+
+    // Step 4: Save all 20 newly generated questions to hl_questions table
+    const rowsToInsert = generated20.map((q, idx) => ({
+      fact_a: q.factA,
+      fact_b: q.factB,
+      answer: q.answer,
+      explanation: q.explanation,
+      is_used: idx < 10, // First 10 are used for current round; remaining 10 stay unused for next round
+    }));
+
+    const { error: insertError } = await supabaseAdmin
+      .from('hl_questions')
+      .insert(rowsToInsert);
+
+    if (insertError) {
+      console.warn('[HigherLower] Warning: Failed to save questions in Supabase:', insertError.message);
+    } else {
+      console.log('[HigherLower] Successfully saved 20 questions to hl_questions pool.');
+    }
+
+    // Step 5: Return the first 10 to the frontend
+    const first10 = generated20.slice(0, 10).map((q) => ({
+      factA: q.factA,
+      factB: q.factB,
+      answer: q.answer,
+      explanation: q.explanation,
+    }));
+
+    return res.json(first10);
+  } catch (err: any) {
+    console.error('[higher-lower/generate] Error in question cache pipeline:', err);
+    const fallback = await generateHigherLowerQuestions(10);
+    return res.json(fallback.slice(0, 10));
+  }
+};
+
+gamesRouter.post(
+  ['/higher-lower/generate', '/api/games/higher-lower/generate'],
+  handleHigherLowerGenerate
+);
 gamesRouter.get(
   ['/higher-lower/generate', '/api/games/higher-lower/generate'],
-  async (_req: Request, res: Response) => {
-    try {
-      const questions = await generateHigherLowerQuestions();
-      res.json(questions);
-    } catch (err: any) {
-      console.error('[higher-lower/generate] Error:', err);
-      res.status(500).json({ error: 'FAILED_TO_GENERATE_QUESTIONS' });
-    }
-  }
+  handleHigherLowerGenerate
 );
 
 export default gamesRouter;

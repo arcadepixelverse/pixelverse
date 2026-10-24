@@ -55,7 +55,7 @@ const FALLBACK_ROLES: JailbreakRole[] = [
   },
 ];
 
-const FALLBACK_HIGHER_LOWER_QUESTIONS: HigherLowerQuestion[] = [
+export const FALLBACK_20_HIGHER_LOWER: HigherLowerQuestion[] = [
   {
     factA: 'Speed of sound in air',
     factB: 'Top speed of a Formula 1 race car',
@@ -116,6 +116,66 @@ const FALLBACK_HIGHER_LOWER_QUESTIONS: HigherLowerQuestion[] = [
     answer: 'A',
     explanation: 'The Simpsons has over 760 episodes; original Pokémon count is 151.',
   },
+  {
+    factA: 'Average lifespan of a Greenland shark',
+    factB: 'Average lifespan of a Galápagos giant tortoise',
+    answer: 'A',
+    explanation: 'Greenland sharks live up to 400 years; giant tortoises reach around 150.',
+  },
+  {
+    factA: 'Number of muscles in a human face',
+    factB: 'Number of muscles in an elephant trunk',
+    answer: 'B',
+    explanation: 'Human face has 43 muscles; an elephant trunk has over 40,000.',
+  },
+  {
+    factA: 'Weight of a blue whale heart',
+    factB: 'Weight of a fully grown adult polar bear',
+    answer: 'B',
+    explanation: 'A blue whale heart weighs ~180 kg; adult male polar bears reach ~450 kg.',
+  },
+  {
+    factA: 'Number of teeth in a garden snail',
+    factB: 'Number of teeth in a great white shark at one time',
+    answer: 'A',
+    explanation: 'Garden snails have over 14,000 microscopic teeth; sharks have about 300.',
+  },
+  {
+    factA: 'Average brain volume of an adult human',
+    factB: 'Average brain volume of a sperm whale',
+    answer: 'B',
+    explanation: 'Human brain is ~1.3 liters; sperm whale brain is ~8 liters.',
+  },
+  {
+    factA: 'Length of the Amazon River',
+    factB: 'Length of the Nile River',
+    answer: 'B',
+    explanation: 'Nile measures ~6,650 km; Amazon measures ~6,400 km.',
+  },
+  {
+    factA: 'Number of islands in Sweden',
+    factB: 'Number of islands in the Philippines',
+    answer: 'A',
+    explanation: 'Sweden has ~267,570 islands; Philippines has ~7,641.',
+  },
+  {
+    factA: 'Top speed of a cheetah in a sprint',
+    factB: 'Top speed of a peregrine falcon in a dive',
+    answer: 'B',
+    explanation: 'Peregrine falcon dives at 389 km/h; cheetah sprints up to 120 km/h.',
+  },
+  {
+    factA: 'Estimated number of stars in the Milky Way galaxy',
+    factB: 'Estimated number of trees on planet Earth',
+    answer: 'B',
+    explanation: 'Earth has ~3 trillion trees; Milky Way has ~100-400 billion stars.',
+  },
+  {
+    factA: 'Boiling point of pure gold in Celsius',
+    factB: 'Surface temperature of the Sun in Celsius',
+    answer: 'B',
+    explanation: 'Sun surface is ~5,500°C; gold boils at 2,700°C.',
+  },
 ];
 
 function getApiKey(): string | undefined {
@@ -141,7 +201,6 @@ export async function generateJailbreakRole(): Promise<JailbreakRole> {
   const apiKey = getApiKey();
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
-    console.warn('[Gemini] No GEMINI_API_KEY configured; utilizing creative procedural role generator.');
     return getRandomFallbackRole();
   }
 
@@ -230,20 +289,26 @@ export async function generateJailbreakTurn(
 }
 
 /**
- * Generates 10 pairs of absurd but true facts to compare without hints or numbers.
+ * Generates pairs of absurd but true facts to compare without hints or numbers.
+ * Default count: 20
  */
-export async function generateHigherLowerQuestions(): Promise<HigherLowerQuestion[]> {
+export async function generateHigherLowerQuestions(count: number = 20): Promise<HigherLowerQuestion[]> {
   const apiKey = getApiKey();
-  const prompt =
-    "Generate exactly 10 pairs of absurd but true facts to compare. For each pair, name two things to compare (e.g., 'Speed of sound' vs 'Top speed of an F1 car', or 'Number of bones in a blue whale' vs 'Number of pizzas eaten in the US per day'). CRITICAL: Do NOT include the numerical values or units in the fact text itself. The user must guess. Provide the JSON format strictly as: [ { 'factA': 'string', 'factB': 'string', 'answer': 'A' or 'B', 'explanation': 'string with the numbers (max 15 words)' } ].";
+  const prompt = `Generate exactly ${count} pairs of absurd but true facts to compare. For each pair, name two things to compare (e.g., 'Speed of sound' vs 'Top speed of an F1 car', or 'Number of bones in a blue whale' vs 'Number of pizzas eaten in the US per day'). CRITICAL: Do NOT include the numerical values or units in the fact text itself. The user must guess. Provide the JSON format strictly as: [ { 'factA': 'string', 'factB': 'string', 'answer': 'A' or 'B', 'explanation': 'string with the numbers (max 15 words)' } ].`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
-    return FALLBACK_HIGHER_LOWER_QUESTIONS;
+    return [...FALLBACK_20_HIGHER_LOWER].sort(() => Math.random() - 0.5).slice(0, count);
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
+
+    // 5-second timeout protection so requests never hang indefinitely
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Gemini API call timed out after 5s')), 5000)
+    );
+
+    const generatePromise = ai.models.generateContent({
       model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
       contents: prompt,
       config: {
@@ -251,21 +316,22 @@ export async function generateHigherLowerQuestions(): Promise<HigherLowerQuestio
       },
     });
 
+    const response = await Promise.race([generatePromise, timeoutPromise]);
     const raw = (response.text || '').trim();
     const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(clean);
 
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.slice(0, 10).map((q: any) => ({
-        factA: String(q.factA),
-        factB: String(q.factB),
-        answer: q.answer === 'B' ? 'B' : 'A',
+    if (Array.isArray(parsed) && parsed.length >= 10) {
+      return parsed.slice(0, count).map((q: any) => ({
+        factA: String(q.factA || q.fact_a || ''),
+        factB: String(q.factB || q.fact_b || ''),
+        answer: q.answer?.toString().trim().toUpperCase() === 'B' ? 'B' : 'A',
         explanation: String(q.explanation || ''),
       }));
     }
-    return FALLBACK_HIGHER_LOWER_QUESTIONS;
-  } catch (err) {
-    console.warn('[Gemini] Higher or Lower generation error, using curated fallback:', err);
-    return FALLBACK_HIGHER_LOWER_QUESTIONS;
+    return [...FALLBACK_20_HIGHER_LOWER].sort(() => Math.random() - 0.5).slice(0, count);
+  } catch (err: any) {
+    console.warn('[Gemini] Higher or Lower generation error/timeout, using curated fallback:', err.message || err);
+    return [...FALLBACK_20_HIGHER_LOWER].sort(() => Math.random() - 0.5).slice(0, count);
   }
 }

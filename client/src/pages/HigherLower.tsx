@@ -11,14 +11,16 @@ export interface Question {
   explanation?: string
 }
 
-// Fallback questions without numerical hints or units in the fact text
-const FALLBACK_QUESTIONS: Question[] = [
+
+
+// 5 decent fallback questions if AI is slow or offline
+const HARDCODED_5_FALLBACK_QUESTIONS: Question[] = [
   {
     prompt: 'Which value is higher?',
-    factA: 'Height of the Burj Khalifa in Dubai',
-    factB: 'Height of the Empire State Building in New York',
+    factA: 'Speed of sound in air',
+    factB: 'Top speed of a Formula 1 race car',
     answer: 'A',
-    explanation: 'The Burj Khalifa is 828m, while Empire State is 381m.',
+    explanation: 'Sound is 343 m/s; an F1 car peaks around 105 m/s.',
   },
   {
     prompt: 'Which value is higher?',
@@ -29,17 +31,10 @@ const FALLBACK_QUESTIONS: Question[] = [
   },
   {
     prompt: 'Which value is higher?',
-    factA: 'Speed of sound in air',
-    factB: 'Top speed of a Formula 1 race car',
+    factA: 'Height of the Burj Khalifa in Dubai',
+    factB: 'Height of the Empire State Building in New York',
     answer: 'A',
-    explanation: 'Sound is 343 m/s; an F1 car peaks around 105 m/s.',
-  },
-  {
-    prompt: 'Which value is higher?',
-    factA: 'Number of bones in an adult human body',
-    factB: 'Number of keys on a full-size piano',
-    answer: 'A',
-    explanation: 'An adult has 206 bones; a piano has 88 keys.',
+    explanation: 'The Burj Khalifa is 828m, while Empire State is 381m.',
   },
   {
     prompt: 'Which value is higher?',
@@ -50,38 +45,10 @@ const FALLBACK_QUESTIONS: Question[] = [
   },
   {
     prompt: 'Which value is higher?',
-    factA: 'Year the first Apple iPhone released',
-    factB: 'Year YouTube was publicly founded',
+    factA: 'Number of bones in an adult human body',
+    factB: 'Number of keys on a full-size piano',
     answer: 'A',
-    explanation: 'iPhone debuted in 2007; YouTube launched earlier in 2005.',
-  },
-  {
-    prompt: 'Which value is higher?',
-    factA: 'Confirmed chemical elements on the Periodic Table',
-    factB: 'Recognized natural moons orbiting Jupiter',
-    answer: 'A',
-    explanation: 'Periodic Table has 118 elements; Jupiter has 95 moons.',
-  },
-  {
-    prompt: 'Which value is higher?',
-    factA: 'Distance from Earth to the Moon',
-    factB: 'Equatorial circumference of the Earth',
-    answer: 'A',
-    explanation: 'The Moon is 384,400 km away; Earth circumference is 40,075 km.',
-  },
-  {
-    prompt: 'Which value is higher?',
-    factA: 'Average human heartbeats in one day',
-    factB: 'Total seconds in one day',
-    answer: 'A',
-    explanation: 'Heart beats ~100,000 times/day versus 86,400 seconds.',
-  },
-  {
-    prompt: 'Which value is higher?',
-    factA: 'Total episodes of The Simpsons aired',
-    factB: 'Number of original Generation 1 Pokémon',
-    answer: 'A',
-    explanation: 'The Simpsons has over 760 episodes; original Pokémon count is 151.',
+    explanation: 'An adult has 206 bones; a piano has 88 keys.',
   },
 ]
 
@@ -95,7 +62,7 @@ export function HigherLower() {
   const [cardStatus, setCardStatus] = useState<'correct' | 'wrong' | null>(null)
   const [explanation, setExplanation] = useState<string>('')
 
-  // Fetch 10 questions from the backend API
+  // Fetch 10 questions from the backend API with a 4-second safety threshold
   const fetchQuestions = useCallback(async () => {
     setGameState('loading')
     setFeedback('')
@@ -105,34 +72,57 @@ export function HigherLower() {
     setCurrentIndex(0)
     setExplanation('')
 
+    let hasHandled = false
+
+    // Safety fallback: if fetch takes longer than 4 seconds, auto-load 5 fallback questions
+    const timer = setTimeout(() => {
+      if (!hasHandled) {
+        console.warn('[HigherLower] Fetch exceeded 4s safety threshold; auto-loading 5 fallback questions.')
+        hasHandled = true
+        setQuestions([...HARDCODED_5_FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5))
+        setGameState('playing')
+      }
+    }, 4000)
+
     try {
-      const response = await fetch('http://localhost:10000/api/games/higher-lower/generate')
+      const response = await fetch('http://localhost:10000/api/games/higher-lower/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
       if (!response.ok) {
         throw new Error(`Server returned HTTP ${response.status}`)
       }
+
       const data = await response.json()
       const rawList = Array.isArray(data) ? data : data.questions || []
 
-      if (rawList.length > 0) {
+      if (!hasHandled && rawList.length > 0) {
+        clearTimeout(timer)
+        hasHandled = true
+
         // Normalize any variations in field names
         const normalized: Question[] = rawList.slice(0, 10).map((q: any, i: number) => ({
           prompt: q.prompt || q.question || 'Which is higher?',
-          factA: q.factA || q.optionA || `Fact A (${i + 1})`,
-          factB: q.factB || q.optionB || `Fact B (${i + 1})`,
+          factA: q.factA || q.fact_a || q.optionA || `Fact A (${i + 1})`,
+          factB: q.factB || q.fact_b || q.optionB || `Fact B (${i + 1})`,
           answer: (q.answer || q.correctAnswer || 'A').toString().trim().toUpperCase() === 'B' ? 'B' : 'A',
           explanation: q.explanation || q.reason || 'AI comparison completed.',
         }))
+
+        // Immediately transition once ready
         setQuestions(normalized)
         setGameState('playing')
         return
       }
-      throw new Error('No questions received from server')
     } catch (err) {
-      console.warn('Backend question generation unavailable, using fallback deck:', err)
-      // Shuffle fallback deck for variety
-      const shuffled = [...FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5)
-      setQuestions(shuffled)
-      setGameState('playing')
+      if (!hasHandled) {
+        clearTimeout(timer)
+        hasHandled = true
+        console.warn('Backend unavailable, deploying fallback deck:', err)
+        setQuestions([...HARDCODED_5_FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5))
+        setGameState('playing')
+      }
     }
   }, [])
 
