@@ -10,6 +10,7 @@ const GAMES = [
     icon: '🔓',
     neonClass: 'neon-cyan',
     iconBg: 'rgba(0, 245, 255, 0.12)',
+    href: '/games/jailbreak',
   },
   {
     title: 'Higher or Lower',
