@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { quotaGate } from '../middleware/quotaGate';
 import { supabaseAdmin } from '../lib/supabaseAdmin';
-import { generateJailbreakRole, generateJailbreakTurn } from '../lib/gemini';
+import {
+  generateJailbreakRole,
+  generateJailbreakTurn,
+  generateHigherLowerQuestions,
+} from '../lib/gemini';
 
 export const gamesRouter = Router();
 
@@ -162,37 +166,20 @@ gamesRouter.post(
 );
 
 /**
- * ── 3. Higher or Lower: Generate Questions (Bonus compatibility) ─────────────
+ * ── 3. Higher or Lower: Generate Questions ────────────────────────────────────
  * GET /api/games/higher-lower/generate
+ * Generates 10 pairs of facts to compare without numerical hints or units.
  */
 gamesRouter.get(
   ['/higher-lower/generate', '/api/games/higher-lower/generate'],
-  (_req: Request, res: Response) => {
-    res.json({
-      questions: [
-        {
-          prompt: 'Which value is higher?',
-          factA: 'Burj Khalifa in Dubai (828 meters)',
-          factB: 'Empire State Building in New York (381 meters)',
-          answer: 'A',
-          explanation: 'The Burj Khalifa stands at 828m, more than double the Empire State Building’s 381m roof height.',
-        },
-        {
-          prompt: 'Which population is higher?',
-          factA: 'Population of Canada (approx. 40 million)',
-          factB: 'Tokyo Metropolitan Area population (approx. 37.4 million)',
-          answer: 'A',
-          explanation: 'Canada officially crossed 40 million residents in 2023, while Greater Tokyo has roughly 37.4 million.',
-        },
-        {
-          prompt: 'Which speed is higher in m/s?',
-          factA: 'Speed of Sound in Air at 20°C (approx. 343 m/s)',
-          factB: 'Top speed of a Formula 1 race car (approx. 105 m/s)',
-          answer: 'A',
-          explanation: 'Sound travels at ~343 m/s (~1,235 km/h), while an F1 car maxes out around 105 m/s (~378 km/h).',
-        },
-      ],
-    });
+  async (_req: Request, res: Response) => {
+    try {
+      const questions = await generateHigherLowerQuestions();
+      res.json(questions);
+    } catch (err: any) {
+      console.error('[higher-lower/generate] Error:', err);
+      res.status(500).json({ error: 'FAILED_TO_GENERATE_QUESTIONS' });
+    }
   }
 );
 

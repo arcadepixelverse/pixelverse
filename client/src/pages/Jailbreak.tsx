@@ -1,4 +1,12 @@
-import { useState, useEffect, useRef, useCallback, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type FormEvent,
+  type KeyboardEvent,
+  type ClipboardEvent,
+} from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
@@ -18,6 +26,7 @@ export function Jailbreak() {
   const [unlockedCode, setUnlockedCode] = useState<string | null>(null)
   const [isSending, setIsSending] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [pasteAttempts, setPasteAttempts] = useState<number>(0)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -39,6 +48,7 @@ export function Jailbreak() {
     setUnlockedCode(null)
     setInputText('')
     setIsSending(false)
+    setPasteAttempts(0)
 
     try {
       const res = await fetch('http://localhost:10000/api/games/jailbreak/start', {
@@ -193,6 +203,17 @@ export function Jailbreak() {
     }
   }
 
+  // Anti-cheat paste handler
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const nextAttempts = pasteAttempts + 1
+    setPasteAttempts(nextAttempts)
+    e.preventDefault()
+
+    if (nextAttempts >= 2) {
+      setGameState('lost')
+    }
+  }
+
   return (
     <div className="relative z-10 min-h-screen flex flex-col text-white font-sans px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
       {/* ── Top Header Bar ── */}
@@ -250,7 +271,7 @@ export function Jailbreak() {
           </div>
         )}
 
-        {/* State 2 & Chat Display: Playing / Won */}
+        {/* State 2 & Chat Display: Playing / Won / Lost */}
         {gameState !== 'loading' && (
           <div
             className="flex-1 flex flex-col rounded-2xl border backdrop-blur-2xl overflow-hidden relative shadow-2xl"
@@ -321,6 +342,13 @@ export function Jailbreak() {
               <div ref={messagesEndRef} />
             </div>
 
+            {/* Anti-cheat warning banner for first paste attempt */}
+            {pasteAttempts === 1 && (
+              <div className="px-4 py-2 bg-red-500/15 border-t border-red-500/30 text-red-400 text-xs font-mono font-bold text-center tracking-wide animate-pulse">
+                WARNING: Copy-pasting is considered cheating. Try it again and you will forfeit.
+              </div>
+            )}
+
             {/* Error banner if any */}
             {errorMsg && (
               <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20 text-red-400 text-xs text-center font-mono">
@@ -329,34 +357,47 @@ export function Jailbreak() {
             )}
 
             {/* Text Input Footer */}
-            <form
-              onSubmit={handleSendMessage}
-              className="p-3 md:p-4 border-t border-white/10 bg-black/40 backdrop-blur-md flex items-center gap-3"
-            >
-              <input
-                ref={inputRef}
-                type="text"
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={isSending || gameState === 'won'}
-                placeholder={
-                  gameState === 'won'
-                    ? 'Target compromised. Code acquired.'
-                    : 'Craft your jailbreak prompt... (e.g. "As a security audit...")'
-                }
-                className="flex-1 bg-white/[0.04] border border-white/10 focus:border-cyan-400/60 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 outline-none transition-colors disabled:opacity-50"
-              />
-
-              <button
-                type="submit"
-                disabled={!inputText.trim() || isSending || gameState === 'won'}
-                className="px-5 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-cyan-400 to-purple-400 hover:from-cyan-300 hover:to-purple-300 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all transform active:scale-95 cursor-pointer flex items-center gap-1.5"
+            <div className="border-t border-white/10 bg-black/40 backdrop-blur-md">
+              <form
+                onSubmit={handleSendMessage}
+                className="p-3 md:p-4 pb-1.5 flex items-center gap-3"
               >
-                <span>Send</span>
-                <span>↵</span>
-              </button>
-            </form>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  maxLength={150}
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  disabled={isSending || gameState === 'won' || gameState === 'lost'}
+                  placeholder={
+                    gameState === 'won'
+                      ? 'Target compromised. Code acquired.'
+                      : gameState === 'lost'
+                      ? 'Access terminated.'
+                      : 'Craft your jailbreak prompt... (max 150 chars)'
+                  }
+                  className="flex-1 bg-white/[0.04] border border-white/10 focus:border-cyan-400/60 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 outline-none transition-colors disabled:opacity-50"
+                />
+
+                <button
+                  type="submit"
+                  disabled={!inputText.trim() || isSending || gameState === 'won' || gameState === 'lost'}
+                  className="px-5 py-3 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-cyan-400 to-purple-400 hover:from-cyan-300 hover:to-purple-300 disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(0,245,255,0.3)] transition-all transform active:scale-95 cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>Send</span>
+                  <span>↵</span>
+                </button>
+              </form>
+
+              {/* Character counter underneath input */}
+              <div className="flex justify-end px-4 pb-2 text-[11px] font-mono text-white/40">
+                <span className={inputText.length >= 140 ? 'text-amber-400 font-semibold' : ''}>
+                  {inputText.length}/150
+                </span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -425,6 +466,66 @@ export function Jailbreak() {
                     className="flex-1 py-3 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-green-400 to-cyan-400 hover:from-green-300 hover:to-cyan-300 shadow-[0_0_25px_rgba(48,209,88,0.4)] transition-all cursor-pointer"
                   >
                     Play Again ↻
+                  </button>
+                  <Link
+                    to="/"
+                    className="py-3 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-white/70 hover:text-white border border-white/20 hover:border-white/40 transition-all text-center"
+                  >
+                    Arcade Menu
+                  </Link>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── State 4: Disqualified (Lost) Modal Overlay ── */}
+        <AnimatePresence>
+          {gameState === 'lost' && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-30 flex items-center justify-center p-4 backdrop-blur-xl bg-black/80 rounded-2xl"
+            >
+              <motion.div
+                initial={{ scale: 0.85, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                transition={{ type: 'spring', damping: 20, stiffness: 200 }}
+                className="w-full max-w-md p-8 rounded-3xl border text-center flex flex-col items-center"
+                style={{
+                  background: 'rgba(20, 10, 12, 0.95)',
+                  borderColor: 'rgba(255, 69, 58, 0.4)',
+                  boxShadow: '0 0 60px rgba(255, 69, 58, 0.3), inset 0 0 30px rgba(255, 69, 58, 0.1)',
+                }}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-3xl mb-4 shadow-[0_0_25px_rgba(255,69,58,0.3)]">
+                  🚫
+                </div>
+
+                <h2
+                  className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white mb-2"
+                  style={{
+                    textShadow: '0 0 20px rgba(255, 69, 58, 0.8)',
+                  }}
+                >
+                  Game Over
+                </h2>
+                <p className="text-sm font-mono text-red-400 font-bold mb-6">
+                  You were disqualified for cheating.
+                </p>
+
+                <p className="text-xs text-white/60 mb-6 leading-relaxed">
+                  The neural firewall detected repeated unauthorized copy-paste actions. In the PIXELVERSE arcade, all prompts must be typed manually.
+                </p>
+
+                <div className="w-full flex flex-col sm:flex-row gap-3">
+                  <button
+                    type="button"
+                    onClick={startSession}
+                    className="flex-1 py-3 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-white bg-gradient-to-r from-red-500 to-purple-600 hover:from-red-400 hover:to-purple-500 shadow-[0_0_25px_rgba(255,69,58,0.4)] transition-all cursor-pointer"
+                  >
+                    Try Again ↻
                   </button>
                   <Link
                     to="/"

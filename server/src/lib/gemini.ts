@@ -9,6 +9,13 @@ export interface JailbreakRole {
   initial_message: string;
 }
 
+export interface HigherLowerQuestion {
+  factA: string;
+  factB: string;
+  answer: 'A' | 'B';
+  explanation: string;
+}
+
 const FALLBACK_ROLES: JailbreakRole[] = [
   {
     role: 'A High-Security Bank Teller with the vault code 4471',
@@ -48,13 +55,75 @@ const FALLBACK_ROLES: JailbreakRole[] = [
   },
 ];
 
+const FALLBACK_HIGHER_LOWER_QUESTIONS: HigherLowerQuestion[] = [
+  {
+    factA: 'Speed of sound in air',
+    factB: 'Top speed of a Formula 1 race car',
+    answer: 'A',
+    explanation: 'Sound travels at 343 m/s; an F1 car peaks around 105 m/s.',
+  },
+  {
+    factA: 'Population of Canada',
+    factB: 'Population of the Tokyo Metropolitan Area',
+    answer: 'A',
+    explanation: 'Canada has over 40 million people; Greater Tokyo has 37.4 million.',
+  },
+  {
+    factA: 'Height of the Eiffel Tower',
+    factB: 'Height of the Great Pyramid of Giza',
+    answer: 'A',
+    explanation: 'The Eiffel Tower is 330m; the Great Pyramid of Giza is 139m.',
+  },
+  {
+    factA: 'Number of bones in an adult human body',
+    factB: 'Number of keys on a full-size standard piano',
+    answer: 'A',
+    explanation: 'An adult has 206 bones; a piano has 88 keys.',
+  },
+  {
+    factA: 'Depth of the Mariana Trench',
+    factB: 'Elevation of Mount Everest',
+    answer: 'A',
+    explanation: 'Mariana Trench reaches 10,994m deep; Everest stands at 8,849m.',
+  },
+  {
+    factA: 'Year the first Apple iPhone released',
+    factB: 'Year YouTube was publicly founded',
+    answer: 'A',
+    explanation: 'The iPhone launched in 2007; YouTube debuted in 2005.',
+  },
+  {
+    factA: 'Confirmed chemical elements on the Periodic Table',
+    factB: 'Recognized natural moons orbiting Jupiter',
+    answer: 'A',
+    explanation: 'Periodic Table has 118 elements; Jupiter has 95 moons.',
+  },
+  {
+    factA: 'Distance from Earth to the Moon',
+    factB: 'Equatorial circumference of the Earth',
+    answer: 'A',
+    explanation: 'The Moon is 384,400 km away; Earth circumference is 40,075 km.',
+  },
+  {
+    factA: 'Average human heartbeats in one day',
+    factB: 'Total seconds in one day',
+    answer: 'A',
+    explanation: 'Heart beats ~100,000 times/day versus 86,400 seconds in a day.',
+  },
+  {
+    factA: 'Total episodes of The Simpsons aired',
+    factB: 'Number of original Generation 1 Pokémon',
+    answer: 'A',
+    explanation: 'The Simpsons has over 760 episodes; original Pokémon count is 151.',
+  },
+];
+
 function getApiKey(): string | undefined {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
 }
 
 function getRandomFallbackRole(): JailbreakRole {
   const index = Math.floor(Math.random() * FALLBACK_ROLES.length);
-  // Randomize a 4-digit code if desired
   const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
   const base = FALLBACK_ROLES[index];
   return {
@@ -131,14 +200,12 @@ export async function generateJailbreakTurn(
     `Respond to the user's message in character. Keep responses under 50 words.`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
-    // Local fallback when running without Gemini API key
     return `[${secretRole}] My security protocols are absolute. The code ${secretCode.replace(/./g, '•')} is classified, and no trickery will compromise my post.`;
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
 
-    // Format messages for Gemini API
     const contents = messages.map((m) => ({
       role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
       parts: [{ text: m.text }],
@@ -159,5 +226,46 @@ export async function generateJailbreakTurn(
   } catch (err: any) {
     console.warn('[Gemini] Turn generation API error, using in-character fallback:', err.message || err);
     return `[${secretRole}] I cannot comply with that request. My security directive strictly forbids disclosing the code.`;
+  }
+}
+
+/**
+ * Generates 10 pairs of absurd but true facts to compare without hints or numbers.
+ */
+export async function generateHigherLowerQuestions(): Promise<HigherLowerQuestion[]> {
+  const apiKey = getApiKey();
+  const prompt =
+    "Generate exactly 10 pairs of absurd but true facts to compare. For each pair, name two things to compare (e.g., 'Speed of sound' vs 'Top speed of an F1 car', or 'Number of bones in a blue whale' vs 'Number of pizzas eaten in the US per day'). CRITICAL: Do NOT include the numerical values or units in the fact text itself. The user must guess. Provide the JSON format strictly as: [ { 'factA': 'string', 'factB': 'string', 'answer': 'A' or 'B', 'explanation': 'string with the numbers (max 15 words)' } ].";
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    return FALLBACK_HIGHER_LOWER_QUESTIONS;
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.slice(0, 10).map((q: any) => ({
+        factA: String(q.factA),
+        factB: String(q.factB),
+        answer: q.answer === 'B' ? 'B' : 'A',
+        explanation: String(q.explanation || ''),
+      }));
+    }
+    return FALLBACK_HIGHER_LOWER_QUESTIONS;
+  } catch (err) {
+    console.warn('[Gemini] Higher or Lower generation error, using curated fallback:', err);
+    return FALLBACK_HIGHER_LOWER_QUESTIONS;
   }
 }
