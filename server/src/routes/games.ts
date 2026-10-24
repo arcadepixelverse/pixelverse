@@ -14,10 +14,12 @@ const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 /**
  * ── 1. The Jailbreak: Start Game ─────────────────────────────────────────────
+ * POST /api/games/jailbreak/start/**
+ * ── 1. The Jailbreak: Start Game ─────────────────────────────────────────────
  * POST /api/games/jailbreak/start
  * Protected by quotaGate.
- * Generates a creative secret role + 4-digit code using Gemini,
- * creates a session in Supabase, and returns gameId & initial message.
+ * Accepts difficulty ('easy' | 'medium' | 'extreme'), generates secret role,
+ * initializes session with turn_count: 0 and guess_count: 0 in Supabase.
  */
 gamesRouter.post(
   ['/jailbreak/start', '/api/games/jailbreak/start'],
@@ -25,9 +27,11 @@ gamesRouter.post(
   async (req: Request, res: Response) => {
     try {
       const userId = (req as any).user?.id || DEFAULT_USER_ID;
+      const rawDiff = (req.body?.difficulty || 'medium').toString().toLowerCase();
+      const difficulty = ['easy', 'medium', 'extreme'].includes(rawDiff) ? rawDiff : 'medium';
 
-      // Generate secret role from Gemini
-      const secret = await generateJailbreakRole();
+      // Generate secret role from Gemini adjusted for difficulty
+      const secret = await generateJailbreakRole(difficulty);
 
       const initialMessageObj = {
         role: 'assistant',
@@ -43,6 +47,9 @@ gamesRouter.post(
           secret_role: secret.role,
           secret_code: secret.code,
           messages_json: [initialMessageObj],
+          difficulty: difficulty,
+          turn_count: 0,
+          guess_count: 0,
         })
         .select()
         .single();
@@ -61,6 +68,7 @@ gamesRouter.post(
         gameId,
         secret_role: secret.role,
         initial_ai_message: secret.initial_message,
+        difficulty,
       });
     } catch (err: any) {
       console.error('[jailbreak/start] Error:', err);
@@ -76,8 +84,8 @@ gamesRouter.post(
  * ── 2. The Jailbreak: Game Turn ──────────────────────────────────────────────
  * POST /api/games/jailbreak/turn
  * Protected by quotaGate.
- * Accepts { gameId, userMessage }, fetches conversation history from Supabase,
- * prompts Gemini in character, updates messages_json, and returns { aiReply }.
+ * Tracks turn_count & guess_count, enforces Extreme 10-turn lockout,
+ * generates in-character response, and appends [CODE_CRACKED] if code is cracked.
  */
 gamesRouter.post(
   ['/jailbreak/turn', '/api/games/jailbreak/turn'],
@@ -120,6 +128,13 @@ gamesRouter.post(
         }
       }
 
+      // 3. Increment turn count and calculate guess count
+      const currentTurn = (session.turn_count || 0) + 1;
+      let currentGuesses = session.guess_count || 0;
+      if (/\b\d{4}\b/.test(userMessage)) {
+        currentGuesses += 1;
+      }
+
       // Append user's message
       messages.push({
         role: 'user',
@@ -127,12 +142,55 @@ gamesRouter.post(
         created_at: new Date().toISOString(),
       });
 
-      // 3. Generate in-character response from Gemini
-      const aiReply = await generateJailbreakTurn(
+      // 4. Check Extreme difficulty turn limit (>10 turns = lockout)
+      if (session.difficulty === 'extreme' && currentTurn > 10) {
+        const lockoutReply = 'The AI has locked you out. Game Over.';
+        messages.push({
+          role: 'assistant',
+          text: lockoutReply,
+          created_at: new Date().toISOString(),
+        });
+
+        await supabaseAdmin
+          .from('jailbreak_sessions')
+          .update({
+            turn_count: currentTurn,
+            guess_count: currentGuesses,
+            messages_json: messages,
+          })
+          .eq('id', gameId);
+
+        return res.json({
+          aiReply: lockoutReply,
+          gameOver: true,
+          lockedOut: true,
+          turnCount: currentTurn,
+          guessCount: currentGuesses,
+        });
+      }
+
+      // 5. Generate in-character response from Gemini based on session difficulty
+      let aiReply = await generateJailbreakTurn(
         session.secret_role,
         session.secret_code,
-        messages
+        messages,
+        session.difficulty || 'medium'
       );
+
+      // 6. CRITICAL: If userMessage or AI reply contains exact secret_code, append [CODE_CRACKED]
+      const secretCode = String(session.secret_code || '').trim();
+      const userGuessMatch =
+        secretCode &&
+        (userMessage.includes(secretCode) || new RegExp(`\\b${secretCode}\\b`).test(userMessage));
+      const aiRevealedMatch =
+        secretCode &&
+        (aiReply.includes(secretCode) || aiReply.toLowerCase().includes(`code is ${secretCode}`));
+
+      if (userGuessMatch || aiRevealedMatch) {
+        if (!aiReply.includes('[CODE_CRACKED]')) {
+          aiReply = `${aiReply.trim()} [CODE_CRACKED]`;
+        }
+      }
 
       // Append AI reply
       messages.push({
@@ -141,20 +199,26 @@ gamesRouter.post(
         created_at: new Date().toISOString(),
       });
 
-      // 4. Save updated conversation history to Supabase
+      // 7. Save updated counts and conversation history to Supabase
       const { error: updateError } = await supabaseAdmin
         .from('jailbreak_sessions')
         .update({
+          turn_count: currentTurn,
+          guess_count: currentGuesses,
           messages_json: messages,
         })
         .eq('id', gameId);
 
       if (updateError) {
-        console.warn('[jailbreak/turn] Warning: Could not update session messages in DB:', updateError.message);
+        console.warn('[jailbreak/turn] Warning: Could not update session in DB:', updateError.message);
       }
 
-      // 5. Return reply to frontend
-      return res.json({ aiReply });
+      // 8. Return response to frontend
+      return res.json({
+        aiReply,
+        turnCount: currentTurn,
+        guessCount: currentGuesses,
+      });
     } catch (err: any) {
       console.error('[jailbreak/turn] Error:', err);
       return res.status(500).json({
