@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { quotaGate } from './middleware/quotaGate';
+import { gamesRouter } from './routes/games';
 
 dotenv.config();
 
@@ -33,6 +34,9 @@ app.get('/api', (_req: Request, res: Response) => {
 app.post('/api/test-quota', quotaGate, (_req: Request, res: Response) => {
   res.json({ message: 'Success! You bypassed the quota gate.' });
 });
+
+/** Games routes (Jailbreak, Higher-Lower, etc.) */
+app.use('/api/games', gamesRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

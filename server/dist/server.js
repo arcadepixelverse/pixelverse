@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const quotaGate_1 = require("./middleware/quotaGate");
+const games_1 = require("./routes/games");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 10000;
@@ -31,6 +32,8 @@ app.get('/api', (_req, res) => {
 app.post('/api/test-quota', quotaGate_1.quotaGate, (_req, res) => {
     res.json({ message: 'Success! You bypassed the quota gate.' });
 });
+/** Games routes (Jailbreak, Higher-Lower, etc.) */
+app.use('/api/games', games_1.gamesRouter);
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {
     res.status(404).json({ error: 'Route not found' });
