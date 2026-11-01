@@ -22,10 +22,11 @@ const GAMES = [
   },
   {
     title: 'Mind Reader',
-    description: "Think of anything. The AI will try to read your mind in 20 questions.",
+    description: "Think of a number between 1 and 1000. Can the AI read your mind?",
     icon: '🧠',
     neonClass: 'neon-purple',
     iconBg: 'rgba(191, 90, 242, 0.12)',
+    href: '/games/mind-reader',
   },
   {
     title: 'The Oracle',
