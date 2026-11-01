@@ -422,29 +422,36 @@ export interface MindReaderStepResult {
   aiMessage: string;
   is_final_guess: boolean;
   guess?: number;
+  confidence?: number;
 }
 
 /**
  * Mind Reader turn generator.
- * Formulates narrowing Yes/No questions or final guess based on secret number and answer history.
+ * Formulates narrowing Yes/No questions or final guess without cheating (does NOT know the secret number).
  */
 export async function generateMindReaderTurn(
-  secretNumber: number,
   messages: Array<{ role: string; text: string }>,
   forceFinalGuess: boolean = false
 ): Promise<MindReaderStepResult> {
   const apiKey = getApiKey();
 
   const systemInstruction = forceFinalGuess
-    ? `You are a mind reader. The user is thinking of the number ${secretNumber}. You must guess the number now. Return strict JSON: { "guess": number, "is_final_guess": true }`
-    : `You are a mind reader. The user is thinking of the number ${secretNumber}. Ask your next Yes/No question to narrow down the number. You can see the history of answers. DO NOT guess the number yet. Keep your question to one short sentence. Return strict JSON: { "question": "string", "is_final_guess": false }`;
+    ? `You are a mind reader. You do NOT know the secret number. Here is the history of your questions and the user's answers: ${JSON.stringify(messages)}. Based on these clues, make your best guess. Return strict JSON: { "guess": number, "confidence": number, "is_final_guess": true }`
+    : `You are a mind reader. You do NOT know the secret number (it is an integer between 1 and 1000). Ask your next Yes/No question to narrow down the number based on the history of answers. DO NOT guess the number yet. Keep your question to one short sentence. Return strict JSON: { "question": "string", "is_final_guess": false }`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     if (forceFinalGuess) {
+      // Offline heuristic guess based on narrowing questions
+      let guess = 500;
+      messages.forEach((m) => {
+        if (m.text.includes('500') && m.text.toLowerCase().includes('yes')) guess = 750;
+        if (m.text.includes('500') && m.text.toLowerCase().includes('no')) guess = 250;
+      });
       return {
-        aiMessage: `Are you thinking of the number ${secretNumber}?`,
+        aiMessage: `Based on your psychic wavelengths, is your number ${guess}?`,
         is_final_guess: true,
-        guess: secretNumber,
+        guess,
+        confidence: 82,
       };
     }
     const step = Math.floor(messages.length / 2);
@@ -458,7 +465,7 @@ export async function generateMindReaderTurn(
       'Is your number a multiple of 10?',
     ];
     return {
-      aiMessage: fallbackQuestions[step] || `Is your number greater than ${secretNumber > 500 ? 750 : 250}?`,
+      aiMessage: fallbackQuestions[step] || 'Is your number greater than 500?',
       is_final_guess: false,
     };
   }
@@ -471,7 +478,7 @@ export async function generateMindReaderTurn(
         ? [
             {
               role: 'user',
-              parts: [{ text: 'I am ready. Ask your first Yes/No question to narrow down my number.' }],
+              parts: [{ text: 'I am ready. Ask your first Yes/No question to narrow down my secret number.' }],
             },
           ]
         : messages.map((m) => ({
@@ -499,11 +506,15 @@ export async function generateMindReaderTurn(
     const parsed = JSON.parse(clean);
 
     const isFinal = Boolean(parsed.is_final_guess || forceFinalGuess);
-    const guessNum = typeof parsed.guess === 'number' ? parsed.guess : (isFinal ? secretNumber : undefined);
+    const guessNum = typeof parsed.guess === 'number' ? parsed.guess : undefined;
+    const confidence =
+      typeof parsed.confidence === 'number'
+        ? Math.max(0, Math.min(100, Math.round(parsed.confidence)))
+        : 80;
 
     let aiMessage = '';
     if (isFinal) {
-      aiMessage = parsed.question || (guessNum !== undefined ? `Is your number ${guessNum}?` : `Are you thinking of ${secretNumber}?`);
+      aiMessage = parsed.question || (guessNum !== undefined ? `Is your number ${guessNum}?` : 'I have deduced your number!');
     } else {
       aiMessage = parsed.question || 'Is your number greater than 500?';
     }
@@ -512,14 +523,16 @@ export async function generateMindReaderTurn(
       aiMessage,
       is_final_guess: isFinal,
       guess: guessNum,
+      confidence: isFinal ? confidence : undefined,
     };
   } catch (err: any) {
     console.warn('[Gemini] Mind Reader turn generation error, using fallback:', err.message || err);
     if (forceFinalGuess) {
       return {
-        aiMessage: `Are you thinking of the number ${secretNumber}?`,
+        aiMessage: `I sense your aura... Is your number 420?`,
         is_final_guess: true,
-        guess: secretNumber,
+        guess: 420,
+        confidence: 76,
       };
     }
     const step = Math.floor(messages.length / 2);
@@ -604,6 +617,116 @@ export async function generateOracleVerdict(
       percentage: 38,
       verdict:
         'The ether registers your aspiration, but your actions lack mathematical precision. Until your discipline matches your ambition, the probability of failure dominates.',
+    };
+  }
+}
+
+export interface OracleChatResult {
+  is_ready: boolean;
+  message: string;
+  percentage?: number;
+}
+
+/**
+ * Dynamic AI Brain for The Oracle:
+ * Evaluates goal and history, asking 3 brutal psychological questions one-by-one,
+ * then delivering a final probability percentage and 2-sentence verdict.
+ */
+export async function generateOracleChat(
+  goal: string,
+  history: Array<{ role: string; message: string } | any>
+): Promise<OracleChatResult> {
+  const apiKey = getApiKey();
+
+  const systemInstruction = `You are the Oracle. The user's goal is: '${goal}'. 
+Your job is to ask them 3 brutal, probing, psychological questions ONE BY ONE to judge their chances of success. 
+Review the history: ${JSON.stringify(history)}. 
+If you have asked fewer than 3 questions, ask the NEXT single question. Return strict JSON: { "is_ready": false, "message": "your question" }.
+If you have asked 3 questions (and the user has answered them), calculate a realistic probability of success (0-100%) and deliver a 2-sentence verdict. Return strict JSON: { "is_ready": true, "percentage": number, "message": "your verdict" }.`;
+
+  const questionCount = Array.isArray(history)
+    ? history.filter((h: any) => h.role === 'oracle' || h.role === 'assistant').length
+    : 0;
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    if (questionCount >= 3) {
+      return {
+        is_ready: true,
+        percentage: 44,
+        message:
+          'The nexus reveals profound ambition colliding with fragile discipline. You crave the pinnacle, but your daily habits reflect complacency.',
+      };
+    }
+    const offlineQuestions = [
+      'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?',
+      'Are you being completely honest with yourself regarding your work ethic, or is this wishful thinking?',
+      'When self-doubt and distraction tempt you, what specific defense prevents you from quitting?',
+    ];
+    return {
+      is_ready: false,
+      message: offlineQuestions[questionCount] || 'What is the greatest illusion currently blinding your preparation?',
+    };
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const promptText = `User Goal: "${goal}". Current conversation history: ${JSON.stringify(history)}. Produce your next response.`;
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Oracle chat timed out')), 5000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: promptText,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        temperature: 0.6,
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    const isReady = Boolean(parsed.is_ready);
+    const message = typeof parsed.message === 'string' && parsed.message.trim()
+      ? parsed.message.trim()
+      : (isReady
+          ? 'The cosmic currents dictate that without total ruthlessness, your ambition will remain unfulfilled.'
+          : 'What is the unspoken vulnerability threatening to undermine your goal?');
+
+    const percentage =
+      typeof parsed.percentage === 'number'
+        ? Math.max(0, Math.min(100, Math.round(parsed.percentage)))
+        : (isReady ? 48 : undefined);
+
+    return {
+      is_ready: isReady,
+      message,
+      percentage,
+    };
+  } catch (err: any) {
+    console.warn('[Gemini] Oracle chat error, using dynamic fallback:', err.message || err);
+    if (questionCount >= 3) {
+      return {
+        is_ready: true,
+        percentage: 42,
+        message:
+          'The nexus reveals ambition that remains vulnerable to distraction. Forge iron discipline, or watch your aspirations evaporate into the noise.',
+      };
+    }
+    const fallbackQuestions = [
+      'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?',
+      'Are you being completely honest with yourself regarding your work ethic, or is this wishful thinking?',
+      'When self-doubt and distraction tempt you, what specific defense prevents you from quitting?',
+    ];
+    return {
+      is_ready: false,
+      message: fallbackQuestions[questionCount] || 'What is the greatest illusion currently blinding your preparation?',
     };
   }
 }

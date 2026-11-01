@@ -3,29 +3,30 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 
-const CANNED_QUESTIONS = [
-  "How many hours have you genuinely studied for this?",
-  "Are you being 100% honest with yourself right now?",
-  "What is the biggest distraction standing in your way?",
-]
-
 export interface VerdictData {
   percentage: number
   verdict: string
 }
 
+export interface OracleMessage {
+  role: 'oracle' | 'user'
+  message: string
+}
+
 export function Oracle() {
-  const [step, setStep] = useState<number>(0)
-  const [userQuestion, setUserQuestion] = useState<string>('')
-  const [answers, setAnswers] = useState<string[]>([])
+  const [step, setStep] = useState<number>(0) // 0 = Goal Input, 1 = Dynamic Probing Chat, 2 = Verdict Screen
+  const [goal, setGoal] = useState<string>('')
   const [currentInput, setCurrentInput] = useState<string>('')
+  const [currentQuestion, setCurrentQuestion] = useState<string>('')
+  const [history, setHistory] = useState<OracleMessage[]>([])
+  const [isLoading, setIsLoading] = useState<boolean>(false)
   const [verdictData, setVerdictData] = useState<VerdictData | null>(null)
   const [displayedVerdict, setDisplayedVerdict] = useState<string>('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  // ── Typewriter effect for step 5 ──
+  // ── Typewriter effect for step 2 verdict ──
   useEffect(() => {
-    if (step === 5 && verdictData?.verdict) {
+    if (step === 2 && verdictData?.verdict) {
       setDisplayedVerdict('')
       let i = 0
       const fullText = verdictData.verdict
@@ -40,54 +41,33 @@ export function Oracle() {
     }
   }, [step, verdictData])
 
-  // ── Step 0 Submission: Initial user question ──
-  const handleStartConsultation = (e: FormEvent) => {
+  // Count how many questions Oracle has asked so far (1 to 3)
+  const questionCount = Math.min(
+    3,
+    Math.max(1, history.filter((h) => h.role === 'oracle').length)
+  )
+
+  // ── Step 0: Submit goal and retrieve first dynamic question ──
+  const handleStartConsultation = async (e: FormEvent) => {
     e.preventDefault()
     const trimmed = currentInput.trim()
     if (!trimmed) {
-      setErrorMsg('Ask the Oracle what you seek to know.')
+      setErrorMsg('Ask the Oracle what you seek to achieve.')
       return
     }
 
-    setUserQuestion(trimmed)
-    setAnswers([])
+    setGoal(trimmed)
     setCurrentInput('')
     setErrorMsg(null)
-    setStep(1)
-  }
+    setIsLoading(true)
 
-  // ── Steps 1-3 Submission: Canned probing questions ──
-  const handleAnswerStep = async (e: FormEvent) => {
-    e.preventDefault()
-    const trimmed = currentInput.trim()
-    if (!trimmed) {
-      setErrorMsg('The Oracle demands an answer. Do not remain silent.')
-      return
-    }
-
-    const updatedAnswers = [...answers, trimmed]
-    setAnswers(updatedAnswers)
-    setCurrentInput('')
-    setErrorMsg(null)
-
-    if (step < 3) {
-      setStep(step + 1)
-    } else {
-      // Step 3 answered -> move to loading step 4 and consult backend
-      setStep(4)
-      await fetchVerdict(updatedAnswers)
-    }
-  }
-
-  // ── Step 4: Call backend for the final Oracle verdict ──
-  const fetchVerdict = async (completedAnswers: string[]) => {
     try {
-      const res = await fetch('http://localhost:10000/api/games/oracle/verdict', {
+      const res = await fetch('http://localhost:10000/api/games/oracle/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          question: userQuestion,
-          answers: completedAnswers,
+          goal: trimmed,
+          history: [],
         }),
       })
 
@@ -97,42 +77,119 @@ export function Oracle() {
       }
 
       const data = await res.json()
-      setVerdictData({
-        percentage: typeof data.percentage === 'number' ? data.percentage : 50,
-        verdict: data.verdict || 'The threads of fate remain woven in shadow. Your discipline shall determine the outcome.',
-      })
-      setStep(5)
+      const firstQ = data.message || 'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?'
+      setCurrentQuestion(firstQ)
+      setHistory([{ role: 'oracle', message: firstQ }])
+      setStep(1)
     } catch (err: any) {
-      console.warn('Backend unavailable, using simulated oracle reading:', err)
-      // Simulated offline verdict
-      const answersText = completedAnswers.join(' ').toLowerCase()
-      let simulatedPercentage = 45
-      if (answersText.includes('many') || answersText.includes('yes') || answersText.includes('hard') || answersText.includes('none')) {
-        simulatedPercentage = 78
-      } else if (answersText.includes('zero') || answersText.includes('phone') || answersText.includes('procrastinat') || answersText.includes('no')) {
-        simulatedPercentage = 24
-      }
-
-      setVerdictData({
-        percentage: simulatedPercentage,
-        verdict:
-          simulatedPercentage > 50
-            ? 'The nexus of destiny leans toward your triumph, yet complacency will fracture it. Eliminate your final hesitation and claim what you sought.'
-            : 'Your conviction is compromised by the distractions you readily harbor. Until discipline replaces your excuses, failure remains your mathematical certainty.',
-      })
-      setStep(5)
+      console.warn('Backend unavailable, using simulated oracle consultation:', err)
+      const offlineQ = 'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?'
+      setCurrentQuestion(offlineQ)
+      setHistory([{ role: 'oracle', message: offlineQ }])
+      setStep(1)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  // ── Reset to step 0 ──
+  // ── Step 1: Submit answer to current dynamic question ──
+  const handleAnswerStep = async (e: FormEvent) => {
+    e.preventDefault()
+    const trimmed = currentInput.trim()
+    if (!trimmed) {
+      setErrorMsg('The Oracle demands an answer. Do not remain silent.')
+      return
+    }
+
+    const updatedHistory: OracleMessage[] = [
+      ...history,
+      { role: 'user', message: trimmed },
+    ]
+    setHistory(updatedHistory)
+    setCurrentInput('')
+    setErrorMsg(null)
+    setIsLoading(true)
+
+    try {
+      const res = await fetch('http://localhost:10000/api/games/oracle/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goal,
+          history: updatedHistory,
+        }),
+      })
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}))
+        throw new Error(errJson.message || `Server returned ${res.status}`)
+      }
+
+      const data = await res.json()
+
+      if (data.is_ready) {
+        setVerdictData({
+          percentage: typeof data.percentage === 'number' ? data.percentage : 50,
+          verdict: data.message || 'The threads of fate remain woven in shadow. Your discipline shall determine the outcome.',
+        })
+        setStep(2)
+      } else {
+        const nextQ = data.message || 'What is the greatest illusion currently blinding your preparation?'
+        setCurrentQuestion(nextQ)
+        setHistory([...updatedHistory, { role: 'oracle', message: nextQ }])
+      }
+    } catch (err: any) {
+      console.warn('Backend unavailable, evaluating dynamic fallback:', err)
+      const askedCount = updatedHistory.filter((h) => h.role === 'oracle').length
+      if (askedCount >= 3) {
+        // Fallback to verdict
+        const userAnswers = updatedHistory
+          .filter((h) => h.role === 'user')
+          .map((h) => h.message)
+          .join(' ')
+          .toLowerCase()
+
+        let simulatedPercentage = 44
+        if (userAnswers.includes('many') || userAnswers.includes('yes') || userAnswers.includes('hard') || userAnswers.includes('daily')) {
+          simulatedPercentage = 78
+        } else if (userAnswers.includes('zero') || userAnswers.includes('phone') || userAnswers.includes('procrastinat') || userAnswers.includes('no')) {
+          simulatedPercentage = 23
+        }
+
+        setVerdictData({
+          percentage: simulatedPercentage,
+          verdict:
+            simulatedPercentage > 50
+              ? 'The nexus of destiny leans toward your triumph, yet complacency will fracture it. Eliminate your final hesitation and claim what you sought.'
+              : 'Your conviction is compromised by the distractions you readily harbor. Until discipline replaces your excuses, failure remains your mathematical certainty.',
+        })
+        setStep(2)
+      } else {
+        const fallbackQuestions = [
+          'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?',
+          'Are you being completely honest with yourself regarding your work ethic, or is this wishful thinking?',
+          'When self-doubt and distraction tempt you, what specific defense prevents you from quitting?',
+        ]
+        const nextQ = fallbackQuestions[askedCount] || 'What is the greatest illusion currently blinding your preparation?'
+        setCurrentQuestion(nextQ)
+        setHistory([...updatedHistory, { role: 'oracle', message: nextQ }])
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // ── Reset consultation ──
   const handleReset = () => {
     setStep(0)
-    setUserQuestion('')
-    setAnswers([])
+    setGoal('')
+    setHistory([])
     setCurrentInput('')
+    setCurrentQuestion('')
     setVerdictData(null)
     setDisplayedVerdict('')
     setErrorMsg(null)
+    setIsLoading(false)
   }
 
   // Percentage color helper
@@ -181,12 +238,12 @@ export function Oracle() {
                 The Oracle
               </h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-blue-500/15 border border-blue-500/30 text-blue-300">
-                Futuristic Seer
+                Dynamic Neural Seer
               </span>
             </div>
-            {step > 0 && userQuestion && (
+            {step > 0 && goal && (
               <p className="text-[11px] text-white/40 tracking-wide line-clamp-1 max-w-sm sm:max-w-md">
-                Inquiry: <span className="font-mono text-white/80 font-medium">&ldquo;{userQuestion}&rdquo;</span>
+                Goal: <span className="font-mono text-white/80 font-medium">&ldquo;{goal}&rdquo;</span>
               </p>
             )}
           </div>
@@ -194,7 +251,7 @@ export function Oracle() {
 
         {/* Status indicator */}
         <div className="flex items-center gap-2">
-          {step >= 1 && step <= 3 && (
+          {step === 1 && (
             <div
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider"
               style={{
@@ -204,7 +261,7 @@ export function Oracle() {
               }}
             >
               <span>PROBING:</span>
-              <span className="font-bold">{step}/3</span>
+              <span className="font-bold">{questionCount}/3</span>
             </div>
           )}
 
@@ -226,7 +283,7 @@ export function Oracle() {
       <main className="flex-1 flex flex-col items-center justify-center min-h-0 relative">
         <AnimatePresence mode="wait">
           {/* ═══════════════════════════════════════════════════════════════════
-              STEP 0: ASK QUESTION
+              STEP 0: ASK GOAL / INQUIRY
           ═══════════════════════════════════════════════════════════════════ */}
           {step === 0 && (
             <motion.div
@@ -239,7 +296,7 @@ export function Oracle() {
             >
               <div className="mb-4">
                 <span className="text-[11px] font-mono font-bold tracking-widest uppercase px-3.5 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 shadow-[0_0_20px_rgba(10,132,255,0.2)]">
-                  🔮 Omniscient Neural Divination
+                  🔮 Dynamic Neural Divination
                 </span>
               </div>
 
@@ -253,7 +310,7 @@ export function Oracle() {
               </h1>
 
               <p className="text-base sm:text-lg text-white/70 max-w-md leading-relaxed mb-8">
-                Dare you gaze into the quantum stream? Speak your inquiry and prepare for ruthless, unvarnished truth.
+                Speak your goal. The Oracle will probe your conviction with 3 ruthless questions before passing judgment.
               </p>
 
               {/* Consultation Form */}
@@ -267,20 +324,21 @@ export function Oracle() {
                 }}
               >
                 <div className="w-full flex flex-col items-start gap-2">
-                  <label htmlFor="user-q" className="text-xs font-mono uppercase tracking-wider text-white/50">
-                    What do you seek to know?
+                  <label htmlFor="user-goal" className="text-xs font-mono uppercase tracking-wider text-white/50">
+                    What is your ambition or goal?
                   </label>
                   <input
-                    id="user-q"
+                    id="user-goal"
                     type="text"
                     value={currentInput}
                     onChange={(e) => {
                       setCurrentInput(e.target.value)
                       setErrorMsg(null)
                     }}
-                    placeholder="e.g. Will I pass my exam?"
+                    placeholder="e.g. Launch my AI startup this month"
                     maxLength={150}
-                    className="w-full bg-white/[0.04] border border-white/15 focus:border-blue-400 rounded-2xl px-5 py-4 text-base sm:text-lg text-white placeholder-white/20 outline-none transition-all shadow-inner"
+                    disabled={isLoading}
+                    className="w-full bg-white/[0.04] border border-white/15 focus:border-blue-400 rounded-2xl px-5 py-4 text-base sm:text-lg text-white placeholder-white/20 outline-none transition-all shadow-inner disabled:opacity-50"
                     autoFocus
                   />
                 </div>
@@ -295,22 +353,31 @@ export function Oracle() {
                   whileHover={{ scale: 1.02, y: -2 }}
                   whileTap={{ scale: 0.98 }}
                   type="submit"
-                  disabled={!currentInput.trim()}
+                  disabled={!currentInput.trim() || isLoading}
                   className="w-full py-4 px-8 rounded-2xl font-black text-xs uppercase tracking-widest text-black bg-gradient-to-r from-blue-400 via-cyan-400 to-indigo-400 hover:from-blue-300 hover:to-indigo-300 shadow-[0_0_30px_rgba(10,132,255,0.4)] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <span>CONSULT THE ORACLE</span>
-                  <span>✨</span>
+                  {isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <LoadingOrb size={20} color="#000000" />
+                      <span>INITIALIZING NEXUS...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <span>CONSULT THE ORACLE</span>
+                      <span>✨</span>
+                    </>
+                  )}
                 </motion.button>
               </form>
             </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════
-              STEPS 1-3: CANNED PROBING QUESTIONS
+              STEP 1: DYNAMIC PROBING CHAT
           ═══════════════════════════════════════════════════════════════════ */}
-          {step >= 1 && step <= 3 && (
+          {step === 1 && (
             <motion.div
-              key={`step-${step}`}
+              key="step-1"
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.96 }}
@@ -319,32 +386,49 @@ export function Oracle() {
             >
               {/* Question Card */}
               <div
-                className="w-full p-8 sm:p-10 rounded-3xl border backdrop-blur-2xl flex flex-col items-center text-center relative overflow-hidden shadow-2xl"
+                className="w-full min-h-[220px] p-8 sm:p-10 rounded-3xl border backdrop-blur-2xl flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl transition-all"
                 style={{
                   background: 'linear-gradient(180deg, rgba(10, 132, 255, 0.08) 0%, rgba(10, 15, 25, 0.85) 100%)',
                   borderColor: 'rgba(10, 132, 255, 0.35)',
                   boxShadow: '0 0 60px rgba(10, 132, 255, 0.15)',
                 }}
               >
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
-                  <span className="text-[11px] font-mono uppercase tracking-widest text-blue-300 font-bold">
-                    Probing Query {step} of 3
-                  </span>
-                </div>
+                {isLoading ? (
+                  <div className="flex flex-col items-center gap-4 py-4">
+                    <LoadingOrb size={72} color="#0A84FF" />
+                    <p className="text-xs font-mono text-blue-300 uppercase tracking-widest animate-pulse">
+                      The Oracle is scrutinizing your soul...
+                    </p>
+                  </div>
+                ) : (
+                  <motion.div
+                    key={currentQuestion}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="flex flex-col items-center"
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
+                      <span className="text-[11px] font-mono uppercase tracking-widest text-blue-300 font-bold">
+                        Probing Query {questionCount} of 3
+                      </span>
+                    </div>
 
-                <h2
-                  className="text-2xl sm:text-3xl font-black text-white leading-tight mb-2"
-                  style={{
-                    textShadow: '0 0 20px rgba(10, 132, 255, 0.4)',
-                  }}
-                >
-                  &ldquo;{CANNED_QUESTIONS[step - 1]}&rdquo;
-                </h2>
+                    <h2
+                      className="text-2xl sm:text-3xl font-black text-white leading-tight mb-3"
+                      style={{
+                        textShadow: '0 0 20px rgba(10, 132, 255, 0.4)',
+                      }}
+                    >
+                      &ldquo;{currentQuestion}&rdquo;
+                    </h2>
 
-                <p className="text-xs text-white/40 font-mono">
-                  The Oracle requires complete candor to calibrate probabilities.
-                </p>
+                    <p className="text-xs text-white/40 font-mono">
+                      Answer with surgical honesty. The Oracle detects rationalization.
+                    </p>
+                  </motion.div>
+                )}
               </div>
 
               {/* User Answer Form */}
@@ -361,8 +445,9 @@ export function Oracle() {
                       setErrorMsg(null)
                     }}
                     placeholder="Enter your candid response..."
-                    maxLength={150}
-                    className="w-full bg-white/[0.04] border border-white/15 focus:border-blue-400 rounded-2xl px-5 py-4 text-base text-white placeholder-white/25 outline-none transition-all shadow-inner"
+                    maxLength={200}
+                    disabled={isLoading}
+                    className="w-full bg-white/[0.04] border border-white/15 focus:border-blue-400 rounded-2xl px-5 py-4 text-base text-white placeholder-white/25 outline-none transition-all shadow-inner disabled:opacity-50"
                     autoFocus
                   />
                 </div>
@@ -377,45 +462,58 @@ export function Oracle() {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   type="submit"
-                  disabled={!currentInput.trim()}
+                  disabled={!currentInput.trim() || isLoading}
                   className="w-full py-4 px-6 rounded-2xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-blue-400 via-cyan-400 to-indigo-400 hover:from-blue-300 hover:to-indigo-300 shadow-[0_0_25px_rgba(10,132,255,0.4)] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <span>{step === 3 ? 'DELIVER TO FATE' : 'NEXT'}</span>
-                  <span>{step === 3 ? '⚡' : '→'}</span>
+                  {isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <LoadingOrb size={18} color="#000000" />
+                      <span>EVALUATING CONVICTION...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <span>{questionCount === 3 ? 'DELIVER TO FATE' : 'CONFIRM ANSWER'}</span>
+                      <span>{questionCount === 3 ? '⚡' : '→'}</span>
+                    </>
+                  )}
                 </motion.button>
               </form>
+
+              {/* History Preview */}
+              {history.length > 1 && (
+                <div className="w-full p-4 rounded-2xl border border-white/5 bg-white/[0.015] backdrop-blur-md">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 text-[10px] font-mono text-white/40 uppercase tracking-wider">
+                    <span>Prior Exchanges</span>
+                    <span>{history.length} events</span>
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {history.map((h, i) => (
+                      <div
+                        key={i}
+                        className={`text-xs font-mono py-1 px-2.5 rounded-lg ${
+                          h.role === 'oracle'
+                            ? 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+                            : 'bg-white/[0.03] text-white/70'
+                        }`}
+                      >
+                        <span className="font-bold mr-1.5 uppercase text-[10px]">
+                          {h.role === 'oracle' ? 'Oracle:' : 'You:'}
+                        </span>
+                        <span>{h.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════
-              STEP 4: LOADING / CONSULTING ORACLE
+              STEP 2: VERDICT
           ═══════════════════════════════════════════════════════════════════ */}
-          {step === 4 && (
+          {step === 2 && verdictData && (
             <motion.div
-              key="step-4"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center gap-6 py-20 text-center"
-            >
-              <LoadingOrb size={96} color="#0A84FF" />
-              <div className="flex flex-col gap-1.5">
-                <p className="text-xl font-black tracking-wider text-blue-300 uppercase">
-                  Reading the threads of fate...
-                </p>
-                <p className="text-xs text-white/40 font-mono tracking-widest uppercase">
-                  Synthesizing quantum variables &amp; behavioral probabilities
-                </p>
-              </div>
-            </motion.div>
-          )}
-
-          {/* ═══════════════════════════════════════════════════════════════════
-              STEP 5: VERDICT
-          ═══════════════════════════════════════════════════════════════════ */}
-          {step === 5 && verdictData && (
-            <motion.div
-              key="step-5"
+              key="step-2"
               initial={{ opacity: 0, scale: 0.85 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.85 }}

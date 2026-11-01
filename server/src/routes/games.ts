@@ -7,6 +7,7 @@ import {
   generateHigherLowerQuestions,
   generateMindReaderTurn,
   generateOracleVerdict,
+  generateOracleChat,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
@@ -439,7 +440,14 @@ gamesRouter.post(
       }
 
       // 2. Parse existing message history
-      let messages: Array<{ role: string; text: string; created_at?: string; is_final_guess?: boolean; guess?: number }> = [];
+      let messages: Array<{
+        role: string;
+        text: string;
+        created_at?: string;
+        is_final_guess?: boolean;
+        guess?: number;
+        confidence?: number;
+      }> = [];
       if (Array.isArray(session.messages_json)) {
         messages = [...session.messages_json];
       } else if (typeof session.messages_json === 'string') {
@@ -462,9 +470,8 @@ gamesRouter.post(
       // 4. Check if final guess should be forced (history length >= 8)
       const forceFinalGuess = messages.length >= 8;
 
-      // 5. Call Gemini API
+      // 5. Call Gemini API - strict no-cheating: secret_number is NOT passed
       const result = await generateMindReaderTurn(
-        session.secret_number,
         messages,
         forceFinalGuess
       );
@@ -475,6 +482,7 @@ gamesRouter.post(
         text: result.aiMessage,
         is_final_guess: result.is_final_guess,
         guess: result.guess,
+        confidence: result.confidence,
         created_at: new Date().toISOString(),
       });
 
@@ -494,6 +502,8 @@ gamesRouter.post(
       return res.json({
         aiMessage: result.aiMessage,
         is_final_guess: result.is_final_guess,
+        guess: result.guess,
+        confidence: result.confidence,
       });
     } catch (err: any) {
       console.error('[mind-reader/ask] Error:', err);
@@ -590,6 +600,46 @@ gamesRouter.post(
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
         message: err.message || 'An error occurred while consulting the Oracle.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 8. The Oracle: Dynamic Probing Chat ──────────────────────────────────────
+ * POST /api/games/oracle/chat
+ * Protected by quotaGate.
+ * Accepts { goal, history }.
+ * Evaluates goal and conversational history to ask 3 dynamic probing questions,
+ * then yields is_ready: true with the final percentage and 2-sentence verdict.
+ */
+gamesRouter.post(
+  ['/oracle/chat', '/api/games/oracle/chat'],
+  quotaGate,
+  async (req: Request, res: Response) => {
+    try {
+      const { goal, history } = req.body;
+
+      if (!goal || typeof goal !== 'string' || !goal.trim()) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'goal is required.',
+        });
+      }
+
+      const historyArr = Array.isArray(history) ? history : [];
+      const result = await generateOracleChat(goal.trim(), historyArr);
+
+      return res.json({
+        is_ready: result.is_ready,
+        message: result.message,
+        percentage: result.percentage,
+      });
+    } catch (err: any) {
+      console.error('[oracle/chat] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'An error occurred during Oracle consultation.',
       });
     }
   }

@@ -16,6 +16,7 @@ export function MindReader() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [isFinalGuess, setIsFinalGuess] = useState<boolean>(false)
   const [aiGuess, setAiGuess] = useState<number | null>(null)
+  const [confidence, setConfidence] = useState<number>(85)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [finishFeedback, setFinishFeedback] = useState<'wizard' | 'fraud' | null>(null)
@@ -69,8 +70,13 @@ export function MindReader() {
       setCurrentQuestion(askData.aiMessage || 'Is your number greater than 500?')
 
       if (askData.is_final_guess) {
+        if (typeof askData.confidence === 'number') {
+          setConfidence(askData.confidence)
+        }
         const match = (askData.aiMessage || '').match(/\b\d+\b/)
-        const extracted = match ? parseInt(match[0], 10) : num
+        const extracted = typeof askData.guess === 'number'
+          ? askData.guess
+          : (match ? parseInt(match[0], 10) : num)
         setAiGuess(extracted)
         setIsFinalGuess(true)
         setGameState('reveal')
@@ -117,8 +123,13 @@ export function MindReader() {
       const replyMessage: string = data.aiMessage || ''
 
       if (data.is_final_guess) {
+        if (typeof data.confidence === 'number') {
+          setConfidence(data.confidence)
+        }
         const match = replyMessage.match(/\b\d+\b/)
-        const extracted = match ? parseInt(match[0], 10) : (typeof secretNumber === 'number' ? secretNumber : 42)
+        const extracted = typeof data.guess === 'number'
+          ? data.guess
+          : (match ? parseInt(match[0], 10) : (typeof secretNumber === 'number' ? secretNumber : 42))
         setAiGuess(extracted)
         setIsFinalGuess(true)
         setGameState('reveal')
@@ -132,6 +143,7 @@ export function MindReader() {
       if (turnIndex >= 5) {
         const target = typeof secretNumber === 'number' ? secretNumber : 742
         setAiGuess(target)
+        setConfidence(88)
         setIsFinalGuess(true)
         setGameState('reveal')
       } else {
@@ -175,6 +187,7 @@ export function MindReader() {
     setHistory([])
     setIsFinalGuess(false)
     setAiGuess(null)
+    setConfidence(85)
     setIsLoading(false)
     setErrorMsg(null)
     setFinishFeedback(null)
@@ -519,24 +532,78 @@ export function MindReader() {
               )}
 
               {/* Reveal Header */}
-              <p className="text-sm uppercase tracking-[0.25em] font-mono font-bold text-purple-300 mb-2">
-                You were thinking of...
+              <p className="text-sm uppercase tracking-[0.25em] font-mono font-bold text-purple-300 mb-6">
+                Telepathic Synchronization Complete
               </p>
 
-              {/* Massive Neon AI Guess */}
-              <div className="py-4 my-2">
-                <motion.span
-                  initial={{ scale: 0.5, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: 'spring', damping: 15, delay: 0.15 }}
-                  className="text-7xl sm:text-8xl md:text-9xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-fuchsia-300 to-cyan-400 drop-shadow-[0_0_40px_rgba(191,90,242,0.9)]"
+              {/* 2-Column Comparison Layout */}
+              <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-6">
+                {/* Column 1: User's Secret Number */}
+                <div
+                  className="p-6 rounded-2xl border backdrop-blur-xl flex flex-col items-center justify-center relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(180deg, rgba(50, 180, 255, 0.08) 0%, rgba(10, 15, 25, 0.8) 100%)',
+                    borderColor: 'rgba(56, 189, 248, 0.3)',
+                    boxShadow: '0 0 35px rgba(56, 189, 248, 0.15)',
+                  }}
                 >
-                  {aiGuess !== null ? aiGuess : (typeof secretNumber === 'number' ? secretNumber : 42)}
-                </motion.span>
+                  <span className="text-[11px] font-mono uppercase tracking-widest text-cyan-300/80 mb-2 font-bold">
+                    Your Secret Number
+                  </span>
+                  <motion.span
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', damping: 15, delay: 0.1 }}
+                    className="text-6xl sm:text-7xl font-black font-mono tracking-tight text-cyan-400 drop-shadow-[0_0_30px_rgba(56,189,248,0.8)]"
+                  >
+                    {secretNumber !== '' ? secretNumber : '?'}
+                  </motion.span>
+                  <span className="text-[10px] font-mono text-cyan-400/50 uppercase tracking-widest mt-2">
+                    Locked In By You
+                  </span>
+                </div>
+
+                {/* Column 2: AI's Guess & Confidence Bar */}
+                <div
+                  className="p-6 rounded-2xl border backdrop-blur-xl flex flex-col items-center justify-center relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(180deg, rgba(191, 90, 242, 0.1) 0%, rgba(20, 10, 25, 0.8) 100%)',
+                    borderColor: 'rgba(191, 90, 242, 0.35)',
+                    boxShadow: '0 0 35px rgba(191, 90, 242, 0.2)',
+                  }}
+                >
+                  <span className="text-[11px] font-mono uppercase tracking-widest text-purple-300/80 mb-2 font-bold">
+                    AI&apos;s Guess
+                  </span>
+                  <motion.span
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', damping: 15, delay: 0.2 }}
+                    className="text-6xl sm:text-7xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-fuchsia-300 to-pink-400 drop-shadow-[0_0_30px_rgba(191,90,242,0.8)]"
+                  >
+                    {aiGuess !== null ? aiGuess : (typeof secretNumber === 'number' ? secretNumber : 42)}
+                  </motion.span>
+
+                  {/* Animated Confidence Bar below AI Guess */}
+                  <div className="w-full mt-4 pt-3 border-t border-purple-500/20">
+                    <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
+                      <span className="text-purple-300/70 uppercase tracking-wider">AI Confidence</span>
+                      <span className="font-bold text-fuchsia-300">{confidence}%</span>
+                    </div>
+                    <div className="w-full h-2.5 bg-black/50 border border-purple-500/30 rounded-full overflow-hidden p-0.5">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min(100, Math.max(0, confidence))}%` }}
+                        transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}
+                        className="h-full rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-400 to-cyan-400 shadow-[0_0_12px_rgba(191,90,242,0.8)]"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <p className="text-xs text-white/50 mb-8 max-w-sm">
-                The neural engine synthesized your {history.length} responses to extract the exact frequency of your thoughts.
+                The neural engine synthesized your {history.length} responses to deduce your frequency without ever being given your number.
               </p>
 
               {/* User Validation Buttons */}
