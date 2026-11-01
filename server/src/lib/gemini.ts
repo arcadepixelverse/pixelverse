@@ -538,3 +538,73 @@ export async function generateMindReaderTurn(
     };
   }
 }
+
+export interface OracleVerdictResult {
+  percentage: number;
+  verdict: string;
+}
+
+/**
+ * Generates a brutally honest, futuristic Oracle verdict based on the user's question and probing answers.
+ */
+export async function generateOracleVerdict(
+  question: string,
+  answers: string[]
+): Promise<OracleVerdictResult> {
+  const apiKey = getApiKey();
+
+  const prompt = `You are a brutally honest, futuristic Oracle. The user asks: '${question}'. Their answers to your probing questions are: ${answers.join(' | ')}. Based on this, calculate a realistic probability of success (0-100%). Then deliver a 2-sentence verdict. Be specific, ruthless, and slightly mysterious. Do not be generic. Return strict JSON: { "percentage": number, "verdict": "string" }`;
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    return {
+      percentage: 42,
+      verdict:
+        'The cosmic threads reveal ambition throttled by mortal hesitation. Without ruthless execution of your focus, fate will remain indifferent to your desires.',
+    };
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Oracle verdict timed out')), 5000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.7,
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    const percentage =
+      typeof parsed.percentage === 'number'
+        ? Math.max(0, Math.min(100, Math.round(parsed.percentage)))
+        : 50;
+
+    const verdict =
+      typeof parsed.verdict === 'string' && parsed.verdict.trim()
+        ? parsed.verdict.trim()
+        : 'The nexus of destiny wavers under your choices. Forge ahead with iron will or dissolve into the noise of failure.';
+
+    return {
+      percentage,
+      verdict,
+    };
+  } catch (err: any) {
+    console.warn('[Gemini] Oracle verdict generation error, using fallback:', err.message || err);
+    return {
+      percentage: 38,
+      verdict:
+        'The ether registers your aspiration, but your actions lack mathematical precision. Until your discipline matches your ambition, the probability of failure dominates.',
+    };
+  }
+}
+

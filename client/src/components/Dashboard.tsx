@@ -34,6 +34,7 @@ const GAMES = [
     icon: '🔮',
     neonClass: 'neon-blue',
     iconBg: 'rgba(10, 132, 255, 0.12)',
+    href: '/games/oracle',
   },
   {
     title: 'The Vault',

@@ -6,6 +6,7 @@ import {
   generateJailbreakTurn,
   generateHigherLowerQuestions,
   generateMindReaderTurn,
+  generateOracleVerdict,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
@@ -550,6 +551,45 @@ gamesRouter.post(
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
         message: err.message || 'Failed to finish Mind Reader game.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 7. The Oracle: Verdict ───────────────────────────────────────────────────
+ * POST /api/games/oracle/verdict
+ * Protected by quotaGate.
+ * Accepts { question, answers: string[] }.
+ * Queries Gemini for probability percentage and a 2-sentence ruthless verdict.
+ */
+gamesRouter.post(
+  ['/oracle/verdict', '/api/games/oracle/verdict'],
+  quotaGate,
+  async (req: Request, res: Response) => {
+    try {
+      const { question, answers } = req.body;
+
+      if (!question || typeof question !== 'string' || !question.trim()) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'question is required.',
+        });
+      }
+
+      const answersArr = Array.isArray(answers) ? answers.map(String) : [];
+
+      const result = await generateOracleVerdict(question.trim(), answersArr);
+
+      return res.json({
+        percentage: result.percentage,
+        verdict: result.verdict,
+      });
+    } catch (err: any) {
+      console.error('[oracle/verdict] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'An error occurred while consulting the Oracle.',
       });
     }
   }

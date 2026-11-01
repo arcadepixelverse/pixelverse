@@ -3,6 +3,7 @@ import { Dashboard } from './components/Dashboard'
 import { HigherLower } from './pages/HigherLower'
 import { Jailbreak } from './pages/Jailbreak'
 import { MindReader } from './pages/MindReader'
+import { Oracle } from './pages/Oracle'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
         <Route path="/games/higher-lower" element={<HigherLower />} />
         <Route path="/games/jailbreak" element={<Jailbreak />} />
         <Route path="/games/mind-reader" element={<MindReader />} />
+        <Route path="/games/oracle" element={<Oracle />} />
       </Routes>
     </BrowserRouter>
   )
