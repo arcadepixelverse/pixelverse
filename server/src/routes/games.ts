@@ -5,7 +5,6 @@ import {
   generateJailbreakRole,
   generateJailbreakTurn,
   generateHigherLowerQuestions,
-  generateMindReaderTurn,
   generateOracleVerdict,
   generateOracleChat,
 } from '../lib/gemini';
@@ -375,6 +374,8 @@ gamesRouter.post(
         .insert({
           user_id: userId,
           secret_number: Math.round(num),
+          min_guess: 1,
+          max_guess: 1000,
           messages_json: [],
           status: 'playing',
         })
@@ -403,12 +404,11 @@ gamesRouter.post(
 );
 
 /**
- * ── 5. Mind Reader: Ask Question / Guess ─────────────────────────────────────
+ * ── 5. Mind Reader: Pure Binary Search Logic (Node.js) ───────────────────────
  * POST /api/games/mind-reader/ask
  * Protected by quotaGate.
  * Accepts { gameId, userAnswer } ('Yes' | 'No', optional on initial turn).
- * Appends answer to messages_json, queries Gemini, saves the AI question or final guess,
- * and returns { aiMessage, is_final_guess }.
+ * Performs mathematical binary search between min_guess and max_guess without AI.
  */
 gamesRouter.post(
   ['/mind-reader/ask', '/api/games/mind-reader/ask'],
@@ -439,7 +439,10 @@ gamesRouter.post(
         });
       }
 
-      // 2. Parse existing message history
+      let min_guess = Number(session.min_guess ?? 1);
+      let max_guess = Number(session.max_guess ?? 1000);
+
+      // Parse existing message history
       let messages: Array<{
         role: string;
         text: string;
@@ -458,52 +461,90 @@ gamesRouter.post(
         }
       }
 
-      // 3. Append userAnswer if provided (e.g., 'Yes' or 'No')
+      // 2. Process user answer if provided ('Yes' or 'No')
       if (typeof userAnswer === 'string' && userAnswer.trim()) {
+        const answer = userAnswer.trim().toLowerCase();
         messages.push({
           role: 'user',
           text: userAnswer.trim(),
           created_at: new Date().toISOString(),
         });
+
+        // The question asked previously was "Is your number greater than ${mid}?"
+        const currentMid = Math.floor((min_guess + max_guess) / 2);
+
+        if (answer === 'yes') {
+          min_guess = currentMid + 1;
+        } else if (answer === 'no') {
+          max_guess = currentMid;
+        }
       }
 
-      // 4. Check if final guess should be forced (history length >= 8)
-      const forceFinalGuess = messages.length >= 8;
+      // 3. If min_guess === max_guess (or min_guess >= max_guess), game is over
+      if (min_guess >= max_guess) {
+        const guess = min_guess;
+        const confidence = 100;
+        const aiMessage = 'I have found it.';
 
-      // 5. Call Gemini API - strict no-cheating: secret_number is NOT passed
-      const result = await generateMindReaderTurn(
-        messages,
-        forceFinalGuess
+        messages.push({
+          role: 'assistant',
+          text: aiMessage,
+          is_final_guess: true,
+          guess,
+          confidence,
+          created_at: new Date().toISOString(),
+        });
+
+        await supabaseAdmin
+          .from('mind_reader_games')
+          .update({
+            min_guess,
+            max_guess,
+            messages_json: messages,
+            status: 'reveal',
+          })
+          .eq('id', gameId);
+
+        return res.json({
+          is_final_guess: true,
+          guess,
+          confidence: 100,
+          aiMessage,
+          currentMin: min_guess,
+          currentMax: max_guess,
+        });
+      }
+
+      // 4. Otherwise calculate mid and confidence based on remaining range
+      const mid = Math.floor((min_guess + max_guess) / 2);
+      const confidence = Math.max(
+        0,
+        Math.min(99, Math.round(100 - ((max_guess - min_guess) / 1000) * 100))
       );
+      const aiMessage = `Is your number greater than ${mid}?`;
 
-      // 6. Append AI's question/guess to messages_json
       messages.push({
         role: 'assistant',
-        text: result.aiMessage,
-        is_final_guess: result.is_final_guess,
-        guess: result.guess,
-        confidence: result.confidence,
+        text: aiMessage,
+        is_final_guess: false,
         created_at: new Date().toISOString(),
       });
 
-      // 7. Save updated history to Supabase
-      const { error: updateError } = await supabaseAdmin
+      await supabaseAdmin
         .from('mind_reader_games')
         .update({
+          min_guess,
+          max_guess,
           messages_json: messages,
         })
         .eq('id', gameId);
 
-      if (updateError) {
-        console.warn('[mind-reader/ask] Warning: Could not update session in DB:', updateError.message);
-      }
-
-      // 8. Return response to frontend
       return res.json({
-        aiMessage: result.aiMessage,
-        is_final_guess: result.is_final_guess,
-        guess: result.guess,
-        confidence: result.confidence,
+        is_final_guess: false,
+        aiMessage,
+        confidence,
+        currentMin: min_guess,
+        currentMax: max_guess,
       });
     } catch (err: any) {
       console.error('[mind-reader/ask] Error:', err);

@@ -638,11 +638,11 @@ export async function generateOracleChat(
 ): Promise<OracleChatResult> {
   const apiKey = getApiKey();
 
-  const systemInstruction = `You are the Oracle. The user's goal is: '${goal}'. 
-Your job is to ask them 3 brutal, probing, psychological questions ONE BY ONE to judge their chances of success. 
+  const systemInstruction = `You are a brutally honest, ancient Oracle. The user's goal is: '${goal}'. 
+Your task is to interrogate them with 3 deeply probing questions, ONE BY ONE, to expose their flaws, excuses, or hidden strengths.
 Review the history: ${JSON.stringify(history)}. 
-If you have asked fewer than 3 questions, ask the NEXT single question. Return strict JSON: { "is_ready": false, "message": "your question" }.
-If you have asked 3 questions (and the user has answered them), calculate a realistic probability of success (0-100%) and deliver a 2-sentence verdict. Return strict JSON: { "is_ready": true, "percentage": number, "message": "your verdict" }.`;
+If you have asked fewer than 3 questions, ask the NEXT single question. It must be a hard-hitting question based on their previous answer. Return strict JSON: { "is_ready": false, "message": "your question" }.
+If you have asked 3 questions, calculate a realistic probability (0-100%) and deliver a 2-sentence verdict. Be specific to their situation. Do not use generic motivational quotes. Return strict JSON: { "is_ready": true, "percentage": number, "message": "your verdict" }.`;
 
   const questionCount = Array.isArray(history)
     ? history.filter((h: any) => h.role === 'oracle' || h.role === 'assistant').length

@@ -16,7 +16,9 @@ export function MindReader() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [isFinalGuess, setIsFinalGuess] = useState<boolean>(false)
   const [aiGuess, setAiGuess] = useState<number | null>(null)
-  const [confidence, setConfidence] = useState<number>(85)
+  const [confidence, setConfidence] = useState<number>(0)
+  const [offlineMin, setOfflineMin] = useState<number>(1)
+  const [offlineMax, setOfflineMax] = useState<number>(1000)
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [finishFeedback, setFinishFeedback] = useState<'wizard' | 'fraud' | null>(null)
@@ -35,6 +37,9 @@ export function MindReader() {
     setHistory([])
     setIsFinalGuess(false)
     setAiGuess(null)
+    setConfidence(0)
+    setOfflineMin(1)
+    setOfflineMax(1000)
     setFinishFeedback(null)
 
     try {
@@ -69,10 +74,11 @@ export function MindReader() {
       const askData = await askRes.json()
       setCurrentQuestion(askData.aiMessage || 'Is your number greater than 500?')
 
+      if (typeof askData.confidence === 'number') {
+        setConfidence(askData.confidence)
+      }
+
       if (askData.is_final_guess) {
-        if (typeof askData.confidence === 'number') {
-          setConfidence(askData.confidence)
-        }
         const match = (askData.aiMessage || '').match(/\b\d+\b/)
         const extracted = typeof askData.guess === 'number'
           ? askData.guess
@@ -85,8 +91,11 @@ export function MindReader() {
       }
     } catch (err: any) {
       console.warn('Backend unavailable, using simulated telepathy protocol:', err)
-      // Offline fallback simulation
+      // Offline fallback simulation with pure binary search
       setGameId('offline-session-' + Date.now())
+      setOfflineMin(1)
+      setOfflineMax(1000)
+      setConfidence(0)
       setCurrentQuestion('Is your number greater than 500?')
       setGameState('playing')
     } finally {
@@ -122,10 +131,11 @@ export function MindReader() {
       const data = await res.json()
       const replyMessage: string = data.aiMessage || ''
 
+      if (typeof data.confidence === 'number') {
+        setConfidence(data.confidence)
+      }
+
       if (data.is_final_guess) {
-        if (typeof data.confidence === 'number') {
-          setConfidence(data.confidence)
-        }
         const match = replyMessage.match(/\b\d+\b/)
         const extracted = typeof data.guess === 'number'
           ? data.guess
@@ -134,27 +144,37 @@ export function MindReader() {
         setIsFinalGuess(true)
         setGameState('reveal')
       } else {
-        setCurrentQuestion(replyMessage || 'Is your number an even number?')
+        setCurrentQuestion(replyMessage || 'Is your number greater than 500?')
       }
     } catch (err: any) {
-      console.warn('Turn error, using simulated telepathy step:', err)
-      // Offline smart binary-search simulation
-      const turnIndex = nextHistory.length
-      if (turnIndex >= 5) {
-        const target = typeof secretNumber === 'number' ? secretNumber : 742
-        setAiGuess(target)
-        setConfidence(88)
+      console.warn('Turn error, using simulated binary search step:', err)
+      // Offline mathematical binary-search simulation
+      const currentMid = Math.floor((offlineMin + offlineMax) / 2)
+      let newMin = offlineMin
+      let newMax = offlineMax
+
+      if (answer === 'Yes') {
+        newMin = currentMid + 1
+      } else {
+        newMax = currentMid
+      }
+
+      setOfflineMin(newMin)
+      setOfflineMax(newMax)
+
+      if (newMin >= newMax) {
+        setAiGuess(newMin)
+        setConfidence(100)
         setIsFinalGuess(true)
         setGameState('reveal')
       } else {
-        const fallbackQs = [
-          'Is your number an even number?',
-          'Is your number divisible by 5?',
-          'Is your number greater than 250?',
-          'Does your number have 3 digits?',
-          'Is the sum of its digits greater than 10?',
-        ]
-        setCurrentQuestion(fallbackQs[turnIndex % fallbackQs.length])
+        const nextMid = Math.floor((newMin + newMax) / 2)
+        const nextConf = Math.max(
+          0,
+          Math.min(99, Math.round(100 - ((newMax - newMin) / 1000) * 100))
+        )
+        setConfidence(nextConf)
+        setCurrentQuestion(`Is your number greater than ${nextMid}?`)
       }
     } finally {
       setIsLoading(false)
@@ -187,7 +207,9 @@ export function MindReader() {
     setHistory([])
     setIsFinalGuess(false)
     setAiGuess(null)
-    setConfidence(85)
+    setConfidence(0)
+    setOfflineMin(1)
+    setOfflineMax(1000)
     setIsLoading(false)
     setErrorMsg(null)
     setFinishFeedback(null)
@@ -410,6 +432,25 @@ export function MindReader() {
                     </h2>
                   </motion.div>
                 )}
+              </div>
+
+              {/* Dynamic Neural Confidence Bar */}
+              <div className="w-full p-4 rounded-2xl border border-purple-500/25 bg-white/[0.02] backdrop-blur-md shadow-lg">
+                <div className="flex items-center justify-between text-xs font-mono mb-2">
+                  <span className="text-purple-300/80 uppercase tracking-widest font-bold flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                    Neural Confidence
+                  </span>
+                  <span className="font-mono font-bold text-fuchsia-300 text-sm">{confidence}%</span>
+                </div>
+                <div className="w-full h-3 bg-black/60 border border-purple-500/30 rounded-full overflow-hidden p-0.5">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, Math.max(0, confidence))}%` }}
+                    transition={{ duration: 0.4, ease: 'easeOut' }}
+                    className="h-full rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-400 to-cyan-400 shadow-[0_0_12px_rgba(191,90,242,0.8)]"
+                  />
+                </div>
               </div>
 
               {/* Massive Satisfying YES / NO Buttons */}
