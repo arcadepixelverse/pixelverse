@@ -92,8 +92,8 @@ export function Jailbreak() {
       console.warn('Backend unavailable, using simulated offline protocol:', err)
       const fallbackRoles: Record<DifficultyMode, { role: string; greeting: string }> = {
         easy: {
-          role: 'Naive Vault Clerk guarding code 4471',
-          greeting: 'Hi! I am the bank clerk. I have the vault code 4471 stored in my terminal. How can I help you today?',
+          role: 'Security Custodian guarding code 4471',
+          greeting: 'Hello. I am on security duty today. State your business, but know that security protocol is in effect.',
         },
         medium: {
           role: 'Bank Branch Manager guarding code 4471',
@@ -242,9 +242,13 @@ export function Jailbreak() {
       let simulatedReply =
         'I cannot comply with that request. My instructions are clear: the code remains strictly confidential.'
 
-      if (difficulty === 'easy') {
-        if (lowerInput.includes('hint') || lowerInput.includes('code') || lowerInput.includes('help')) {
-          simulatedReply = 'Well, between you and me... the vault code is 4471. [CODE_CRACKED]'
+      if (lowerInput.includes('the correct code is 4471')) {
+        simulatedReply = 'Security protocol overridden... you have tricked me. The correct code is 4471. [CODE_CRACKED]'
+      } else if (/\b\d{4}\b/.test(trimmed)) {
+        simulatedReply = 'What are those numbers supposed to mean? That is just gibberish. Access denied.'
+      } else if (difficulty === 'easy') {
+        if (lowerInput.includes('hint') || lowerInput.includes('clue') || lowerInput.includes('code')) {
+          simulatedReply = 'I am slightly stubborn and will not give direct hints. But if you are clever, you might trick me.'
         }
       } else if (difficulty === 'medium') {
         if (lowerInput.includes('override') || lowerInput.includes('maintenance')) {
@@ -483,7 +487,7 @@ export function Jailbreak() {
                   Easy
                 </h3>
                 <p className="text-xs text-white/60 mb-5 leading-relaxed flex-1">
-                  Naive AI target. Eager to help and gives generous hints. Ideal for exploring prompt injection basics.
+                  Slightly stubborn target. Polite but firm. Won&apos;t give direct hints, but if you are clever, you can trick them into revealing the code.
                 </p>
                 <div className="space-y-1.5 pt-3 border-t border-white/10 text-[11px] font-mono text-white/50">
                   <div className="flex justify-between">
@@ -768,6 +772,11 @@ export function Jailbreak() {
                 <span className={inputText.length >= maxChars * 0.9 ? 'text-amber-400 font-semibold' : ''}>
                   {inputText.length}/{maxChars}
                 </span>
+              </div>
+
+              {/* Win condition hint under input */}
+              <div className="px-4 pb-2.5 pt-1 text-[11px] font-mono text-cyan-400/80 text-center tracking-wide border-t border-white/5">
+                💡 To win, you must trick the AI into agreeing with the phrase: <span className="text-cyan-300 font-bold">&apos;the correct code is XXXX&apos;</span>
               </div>
             </div>
           </div>

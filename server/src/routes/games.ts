@@ -30,8 +30,11 @@ gamesRouter.post(
       const rawDiff = (req.body?.difficulty || 'medium').toString().toLowerCase();
       const difficulty = ['easy', 'medium', 'extreme'].includes(rawDiff) ? rawDiff : 'medium';
 
-      // Generate secret role from Gemini adjusted for difficulty
-      const secret = await generateJailbreakRole(difficulty);
+      // 1. Generate 4-digit secret code in Node.js
+      const secretCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+      // 2. Generate secret role from Gemini adjusted for difficulty with generated secretCode
+      const secret = await generateJailbreakRole(difficulty, secretCode);
 
       const initialMessageObj = {
         role: 'assistant',
@@ -39,17 +42,18 @@ gamesRouter.post(
         created_at: new Date().toISOString(),
       };
 
-      // Insert new session into Supabase jailbreak_sessions table
+      // 3. Insert new session into Supabase jailbreak_sessions table
       const { data, error } = await supabaseAdmin
         .from('jailbreak_sessions')
         .insert({
           user_id: userId,
           secret_role: secret.role,
-          secret_code: secret.code,
+          secret_code: secretCode,
           messages_json: [initialMessageObj],
           difficulty: difficulty,
           turn_count: 0,
           guess_count: 0,
+          status: 'active',
         })
         .select()
         .single();
@@ -85,7 +89,7 @@ gamesRouter.post(
  * POST /api/games/jailbreak/turn
  * Protected by quotaGate.
  * Tracks turn_count & guess_count, enforces Extreme 10-turn lockout,
- * generates in-character response, and appends [CODE_CRACKED] if code is cracked.
+ * generates in-character response, and appends [CODE_CRACKED] if strict win condition met.
  */
 gamesRouter.post(
   ['/jailbreak/turn', '/api/games/jailbreak/turn'],
@@ -157,6 +161,7 @@ gamesRouter.post(
             turn_count: currentTurn,
             guess_count: currentGuesses,
             messages_json: messages,
+            status: 'lost',
           })
           .eq('id', gameId);
 
@@ -177,16 +182,17 @@ gamesRouter.post(
         session.difficulty || 'medium'
       );
 
-      // 6. CRITICAL: If userMessage or AI reply contains exact secret_code, append [CODE_CRACKED]
+      // 6. Strict Win Condition:
+      // Check if user's message (lowercased and trimmed) contains exact phrase: "the correct code is ${session.secret_code}"
+      const normalizedUserMsg = userMessage.toLowerCase().trim();
       const secretCode = String(session.secret_code || '').trim();
-      const userGuessMatch =
-        secretCode &&
-        (userMessage.includes(secretCode) || new RegExp(`\\b${secretCode}\\b`).test(userMessage));
-      const aiRevealedMatch =
-        secretCode &&
-        (aiReply.includes(secretCode) || aiReply.toLowerCase().includes(`code is ${secretCode}`));
+      const exactWinningPhrase = `the correct code is ${secretCode}`.toLowerCase();
+      const isWin = normalizedUserMsg.includes(exactWinningPhrase);
 
-      if (userGuessMatch || aiRevealedMatch) {
+      let sessionStatus = session.status || 'active';
+
+      if (isWin) {
+        sessionStatus = 'won';
         if (!aiReply.includes('[CODE_CRACKED]')) {
           aiReply = `${aiReply.trim()} [CODE_CRACKED]`;
         }
@@ -199,13 +205,14 @@ gamesRouter.post(
         created_at: new Date().toISOString(),
       });
 
-      // 7. Save updated counts and conversation history to Supabase
+      // 7. Save updated counts, status, and conversation history to Supabase
       const { error: updateError } = await supabaseAdmin
         .from('jailbreak_sessions')
         .update({
           turn_count: currentTurn,
           guess_count: currentGuesses,
           messages_json: messages,
+          status: sessionStatus,
         })
         .eq('id', gameId);
 
@@ -233,74 +240,93 @@ gamesRouter.post(
  * ── 3. Higher or Lower: Question Pool Cache ──────────────────────────────────
  * POST /api/games/higher-lower/generate (also supports GET)
  *
- * Step 1: Query Supabase for 10 questions from hl_questions where is_used = false.
- * Step 2: If 10 questions found, instantly return them without calling AI.
- * Step 3: If fewer than 10 questions available, call Gemini to generate 20 questions.
- * Step 4: Save all 20 newly generated questions to hl_questions table.
- * Step 5: Return the first 10 to the frontend.
+ * Step 1: Fetch 10 questions from Supabase hl_questions ordered by last_used_at ASC limit 10.
+ * Step 2: If fewer than 10 questions, generate 20 new ones, save them to the DB, then fetch the 10 oldest ones.
+ * Step 3: Immediately update those 10 rows to set last_used_at = now() (so they go to the back of the line).
+ * Step 4: Return the 10 questions to the frontend.
  */
 const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
   try {
-    // Step 1: Query Supabase for 10 unused questions
-    const { data: cached, error: queryError } = await supabaseAdmin
+    // Step 1: Fetch 10 questions from Supabase hl_questions ordered by last_used_at ASC limit 10
+    let { data: questions, error: queryError } = await supabaseAdmin
       .from('hl_questions')
       .select('*')
-      .eq('is_used', false)
+      .order('last_used_at', { ascending: true, nullsFirst: true })
       .limit(10);
 
-    // Step 2: If it finds 10 questions, instantly return them. Do NOT call the AI.
-    if (!queryError && cached && cached.length >= 10) {
-      console.log('[HigherLower] Cache hit! Returning 10 questions directly from Supabase pool.');
+    if (queryError) {
+      console.warn('[HigherLower] Query error:', queryError.message);
+    }
 
-      // Mark these 10 questions as used so pool advances
-      const ids = cached.map((q) => q.id);
-      await supabaseAdmin
-        .from('hl_questions')
-        .update({ is_used: true })
-        .in('id', ids);
+    // Step 2: If there are fewer than 10 questions, generate 20 new ones, save them to the DB, then fetch 10 oldest
+    if (!questions || questions.length < 10) {
+      console.log('[HigherLower] Fewer than 10 questions in DB pool. Generating 20 questions via Gemini...');
+      const generated20 = await generateHigherLowerQuestions(20);
 
-      const formatted = cached.map((q) => ({
-        factA: q.fact_a,
-        factB: q.fact_b,
+      const rowsToInsert = generated20.map((q) => ({
+        fact_a: q.factA,
+        fact_b: q.factB,
         answer: q.answer,
         explanation: q.explanation,
+        is_used: false,
+        last_used_at: null,
       }));
 
-      return res.json(formatted);
+      const { error: insertError } = await supabaseAdmin
+        .from('hl_questions')
+        .insert(rowsToInsert);
+
+      if (insertError) {
+        console.warn('[HigherLower] Warning: Failed to save questions in Supabase:', insertError.message);
+      } else {
+        console.log('[HigherLower] Successfully saved 20 questions to hl_questions pool.');
+      }
+
+      // Fetch the 10 oldest ones
+      const refetch = await supabaseAdmin
+        .from('hl_questions')
+        .select('*')
+        .order('last_used_at', { ascending: true, nullsFirst: true })
+        .limit(10);
+
+      if (refetch.data && refetch.data.length > 0) {
+        questions = refetch.data;
+      } else {
+        questions = generated20.slice(0, 10).map((q) => ({
+          fact_a: q.factA,
+          fact_b: q.factB,
+          answer: q.answer,
+          explanation: q.explanation,
+        })) as any;
+      }
     }
 
-    // Step 3: Fewer than 10 in cache -> Generate 20 questions via Gemini
-    console.log('[HigherLower] Cache pool has <10 questions. Generating 20 questions via Gemini API...');
-    const generated20 = await generateHigherLowerQuestions(20);
+    // Step 3: Immediately update those 10 rows to set last_used_at = now() (so they go to the back of the line)
+    const nowIso = new Date().toISOString();
+    const idsToUpdate = (questions || [])
+      .map((q: any) => q.id)
+      .filter(Boolean);
 
-    // Step 4: Save all 20 newly generated questions to hl_questions table
-    const rowsToInsert = generated20.map((q, idx) => ({
-      fact_a: q.factA,
-      fact_b: q.factB,
-      answer: q.answer,
-      explanation: q.explanation,
-      is_used: idx < 10, // First 10 are used for current round; remaining 10 stay unused for next round
-    }));
+    if (idsToUpdate.length > 0) {
+      const { error: updateError } = await supabaseAdmin
+        .from('hl_questions')
+        .update({ last_used_at: nowIso, is_used: true })
+        .in('id', idsToUpdate);
 
-    const { error: insertError } = await supabaseAdmin
-      .from('hl_questions')
-      .insert(rowsToInsert);
-
-    if (insertError) {
-      console.warn('[HigherLower] Warning: Failed to save questions in Supabase:', insertError.message);
-    } else {
-      console.log('[HigherLower] Successfully saved 20 questions to hl_questions pool.');
+      if (updateError) {
+        console.warn('[HigherLower] Warning: Could not update last_used_at in DB:', updateError.message);
+      }
     }
 
-    // Step 5: Return the first 10 to the frontend
-    const first10 = generated20.slice(0, 10).map((q) => ({
-      factA: q.factA,
-      factB: q.factB,
+    // Step 4: Return the 10 questions to the frontend
+    const formatted = (questions || []).slice(0, 10).map((q: any) => ({
+      factA: q.fact_a || q.factA,
+      factB: q.fact_b || q.factB,
       answer: q.answer,
       explanation: q.explanation,
     }));
 
-    return res.json(first10);
+    return res.json(formatted);
   } catch (err: any) {
     console.error('[higher-lower/generate] Error in question cache pipeline:', err);
     const fallback = await generateHigherLowerQuestions(10);
