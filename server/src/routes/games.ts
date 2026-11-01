@@ -5,6 +5,7 @@ import {
   generateJailbreakRole,
   generateJailbreakTurn,
   generateHigherLowerQuestions,
+  generateMindReaderTurn,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
@@ -341,6 +342,217 @@ gamesRouter.post(
 gamesRouter.get(
   ['/higher-lower/generate', '/api/games/higher-lower/generate'],
   handleHigherLowerGenerate
+);
+
+/**
+ * ── 4. Mind Reader: Start Game ───────────────────────────────────────────────
+ * POST /api/games/mind-reader/start
+ * Protected by quotaGate.
+ * Accepts { secretNumber } (an integer between 1 and 1000).
+ * Inserts a new row into mind_reader_games and returns { gameId }.
+ */
+gamesRouter.post(
+  ['/mind-reader/start', '/api/games/mind-reader/start'],
+  quotaGate,
+  async (req: Request, res: Response) => {
+    try {
+      const rawUserId = (req as any).user?.id;
+      const userId = rawUserId && rawUserId !== DEFAULT_USER_ID ? rawUserId : null;
+      const { secretNumber } = req.body;
+
+      const num = Number(secretNumber);
+      if (isNaN(num) || num < 1 || num > 1000) {
+        return res.status(400).json({
+          error: 'INVALID_NUMBER',
+          message: 'secretNumber must be an integer between 1 and 1000.',
+        });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('mind_reader_games')
+        .insert({
+          user_id: userId,
+          secret_number: Math.round(num),
+          messages_json: [],
+          status: 'playing',
+        })
+        .select()
+        .single();
+
+      if (error || !data) {
+        console.error('[mind-reader/start] Supabase insert error:', error);
+        return res.status(500).json({
+          error: 'DATABASE_ERROR',
+          message: error?.message || 'Failed to initialize Mind Reader game session.',
+        });
+      }
+
+      return res.json({
+        gameId: data.id,
+      });
+    } catch (err: any) {
+      console.error('[mind-reader/start] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to start Mind Reader game.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 5. Mind Reader: Ask Question / Guess ─────────────────────────────────────
+ * POST /api/games/mind-reader/ask
+ * Protected by quotaGate.
+ * Accepts { gameId, userAnswer } ('Yes' | 'No', optional on initial turn).
+ * Appends answer to messages_json, queries Gemini, saves the AI question or final guess,
+ * and returns { aiMessage, is_final_guess }.
+ */
+gamesRouter.post(
+  ['/mind-reader/ask', '/api/games/mind-reader/ask'],
+  quotaGate,
+  async (req: Request, res: Response) => {
+    try {
+      const { gameId, userAnswer } = req.body;
+
+      if (!gameId) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'gameId is required.',
+        });
+      }
+
+      // 1. Fetch session from Supabase
+      const { data: session, error: fetchError } = await supabaseAdmin
+        .from('mind_reader_games')
+        .select('*')
+        .eq('id', gameId)
+        .single();
+
+      if (fetchError || !session) {
+        console.error('[mind-reader/ask] Session lookup error:', fetchError);
+        return res.status(404).json({
+          error: 'SESSION_NOT_FOUND',
+          message: 'Mind Reader session not found.',
+        });
+      }
+
+      // 2. Parse existing message history
+      let messages: Array<{ role: string; text: string; created_at?: string; is_final_guess?: boolean; guess?: number }> = [];
+      if (Array.isArray(session.messages_json)) {
+        messages = [...session.messages_json];
+      } else if (typeof session.messages_json === 'string') {
+        try {
+          messages = JSON.parse(session.messages_json);
+        } catch {
+          messages = [];
+        }
+      }
+
+      // 3. Append userAnswer if provided (e.g., 'Yes' or 'No')
+      if (typeof userAnswer === 'string' && userAnswer.trim()) {
+        messages.push({
+          role: 'user',
+          text: userAnswer.trim(),
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      // 4. Check if final guess should be forced (history length >= 8)
+      const forceFinalGuess = messages.length >= 8;
+
+      // 5. Call Gemini API
+      const result = await generateMindReaderTurn(
+        session.secret_number,
+        messages,
+        forceFinalGuess
+      );
+
+      // 6. Append AI's question/guess to messages_json
+      messages.push({
+        role: 'assistant',
+        text: result.aiMessage,
+        is_final_guess: result.is_final_guess,
+        guess: result.guess,
+        created_at: new Date().toISOString(),
+      });
+
+      // 7. Save updated history to Supabase
+      const { error: updateError } = await supabaseAdmin
+        .from('mind_reader_games')
+        .update({
+          messages_json: messages,
+        })
+        .eq('id', gameId);
+
+      if (updateError) {
+        console.warn('[mind-reader/ask] Warning: Could not update session in DB:', updateError.message);
+      }
+
+      // 8. Return response to frontend
+      return res.json({
+        aiMessage: result.aiMessage,
+        is_final_guess: result.is_final_guess,
+      });
+    } catch (err: any) {
+      console.error('[mind-reader/ask] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'An error occurred during Mind Reader step.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 6. Mind Reader: Finish Game ──────────────────────────────────────────────
+ * POST /api/games/mind-reader/finish
+ * Accepts { gameId, didWin }.
+ * Updates the mind_reader_games status to 'won' or 'lost'.
+ */
+gamesRouter.post(
+  ['/mind-reader/finish', '/api/games/mind-reader/finish'],
+  async (req: Request, res: Response) => {
+    try {
+      const { gameId, didWin } = req.body;
+
+      if (!gameId) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'gameId is required.',
+        });
+      }
+
+      const status = Boolean(didWin) ? 'won' : 'lost';
+
+      const { data, error } = await supabaseAdmin
+        .from('mind_reader_games')
+        .update({ status })
+        .eq('id', gameId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[mind-reader/finish] Supabase update error:', error);
+        return res.status(500).json({
+          error: 'DATABASE_ERROR',
+          message: error.message || 'Failed to update Mind Reader status.',
+        });
+      }
+
+      return res.json({
+        success: true,
+        gameId,
+        status,
+      });
+    } catch (err: any) {
+      console.error('[mind-reader/finish] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to finish Mind Reader game.',
+      });
+    }
+  }
 );
 
 export default gamesRouter;

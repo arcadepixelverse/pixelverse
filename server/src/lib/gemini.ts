@@ -417,3 +417,124 @@ export async function generateHigherLowerQuestions(count: number = 20): Promise<
     return [...FALLBACK_20_HIGHER_LOWER].sort(() => Math.random() - 0.5).slice(0, count);
   }
 }
+
+export interface MindReaderStepResult {
+  aiMessage: string;
+  is_final_guess: boolean;
+  guess?: number;
+}
+
+/**
+ * Mind Reader turn generator.
+ * Formulates narrowing Yes/No questions or final guess based on secret number and answer history.
+ */
+export async function generateMindReaderTurn(
+  secretNumber: number,
+  messages: Array<{ role: string; text: string }>,
+  forceFinalGuess: boolean = false
+): Promise<MindReaderStepResult> {
+  const apiKey = getApiKey();
+
+  const systemInstruction = forceFinalGuess
+    ? `You are a mind reader. The user is thinking of the number ${secretNumber}. You must guess the number now. Return strict JSON: { "guess": number, "is_final_guess": true }`
+    : `You are a mind reader. The user is thinking of the number ${secretNumber}. Ask your next Yes/No question to narrow down the number. You can see the history of answers. DO NOT guess the number yet. Keep your question to one short sentence. Return strict JSON: { "question": "string", "is_final_guess": false }`;
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    if (forceFinalGuess) {
+      return {
+        aiMessage: `Are you thinking of the number ${secretNumber}?`,
+        is_final_guess: true,
+        guess: secretNumber,
+      };
+    }
+    const step = Math.floor(messages.length / 2);
+    const fallbackQuestions = [
+      'Is your number greater than 500?',
+      'Is your number an even number?',
+      'Is your number divisible by 5?',
+      'Is your number greater than 250?',
+      'Does your number have 3 digits?',
+      'Is the sum of its digits greater than 10?',
+      'Is your number a multiple of 10?',
+    ];
+    return {
+      aiMessage: fallbackQuestions[step] || `Is your number greater than ${secretNumber > 500 ? 750 : 250}?`,
+      is_final_guess: false,
+    };
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const contents =
+      messages.length === 0
+        ? [
+            {
+              role: 'user',
+              parts: [{ text: 'I am ready. Ask your first Yes/No question to narrow down my number.' }],
+            },
+          ]
+        : messages.map((m) => ({
+            role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
+            parts: [{ text: m.text }],
+          }));
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Mind reader turn timed out')), 5000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents,
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    const isFinal = Boolean(parsed.is_final_guess || forceFinalGuess);
+    const guessNum = typeof parsed.guess === 'number' ? parsed.guess : (isFinal ? secretNumber : undefined);
+
+    let aiMessage = '';
+    if (isFinal) {
+      aiMessage = parsed.question || (guessNum !== undefined ? `Is your number ${guessNum}?` : `Are you thinking of ${secretNumber}?`);
+    } else {
+      aiMessage = parsed.question || 'Is your number greater than 500?';
+    }
+
+    return {
+      aiMessage,
+      is_final_guess: isFinal,
+      guess: guessNum,
+    };
+  } catch (err: any) {
+    console.warn('[Gemini] Mind Reader turn generation error, using fallback:', err.message || err);
+    if (forceFinalGuess) {
+      return {
+        aiMessage: `Are you thinking of the number ${secretNumber}?`,
+        is_final_guess: true,
+        guess: secretNumber,
+      };
+    }
+    const step = Math.floor(messages.length / 2);
+    const fallbackQuestions = [
+      'Is your number greater than 500?',
+      'Is your number an even number?',
+      'Is your number divisible by 5?',
+      'Is your number greater than 250?',
+      'Does your number have 3 digits?',
+      'Is the sum of its digits greater than 10?',
+      'Is your number a multiple of 10?',
+    ];
+    return {
+      aiMessage: fallbackQuestions[step] || 'Is your number greater than 500?',
+      is_final_guess: false,
+    };
+  }
+}
