@@ -559,7 +559,9 @@ export interface TuringTestRound {
   humanAnswer: 'A' | 'B';
 }
 
-const FALLBACK_TURING_ROUNDS = [
+export type TuringDifficulty = 'fun' | 'normal' | 'serious';
+
+const FALLBACK_TURING_ROUNDS_FUN = [
   {
     question: 'Why does my dog sigh so dramatically before lying down?',
     human_answer: 'because you made him exist for another day and he still has no job',
@@ -597,6 +599,71 @@ const FALLBACK_TURING_ROUNDS = [
   },
 ];
 
+const FALLBACK_TURING_ROUNDS_NORMAL = [
+  {
+    question: 'What is the best way to get coffee stains out of a white shirt?',
+    human_answer: 'cold water right away and dab it with a paper towel! whatever you do don\'t rub it in or it sets forever',
+    ai_answer: 'Immediately flush the fabric with cold water, apply a dilute mixture of dish soap and white vinegar, and gently blot the affected area.',
+  },
+  {
+    question: 'Should I buy a brand new phone or just replace my cracked screen?',
+    human_answer: 'just fix the screen honestly, new phones are basically identical now and cost way too much',
+    ai_answer: 'If the hardware still supports the latest operating system and your battery health is acceptable, repairing the display is the more economically prudent choice.',
+  },
+  {
+    question: 'How do you politely decline an invitation you really don\'t want to attend?',
+    human_answer: 'hey so sorry i won\'t be able to make it this weekend! hope you all have the best time though',
+    ai_answer: 'A respectful message acknowledging the invitation, stating that you have a prior commitment, and wishing them a successful event is standard etiquette.',
+  },
+  {
+    question: 'What is a good last-minute gift for a coworker you barely know?',
+    human_answer: 'a $15 coffee gift card or some nice cookies, literally no one is ever unhappy with free caffeine or snacks',
+    ai_answer: 'A neutral and universally appreciated gift such as a cafe voucher or a gourmet hot chocolate set is appropriate for professional acquaintances.',
+  },
+  {
+    question: 'How early should you arrive for an in-person job interview?',
+    human_answer: 'about 10 minutes early. if you show up half an hour before it just stresses out the receptionist',
+    ai_answer: 'Arriving approximately 10 to 15 minutes prior to the scheduled interview demonstrates punctuality without creating an inconvenience for your host.',
+  },
+];
+
+const FALLBACK_TURING_ROUNDS_SERIOUS = [
+  {
+    question: 'Can true altruism exist without any subconscious self-interest?',
+    human_answer: 'When I pulled my sister away from an oncoming car, there was zero thought of feeling good about myself later—just pure terror and reflex. Love sometimes acts before the ego even has time to negotiate.',
+    ai_answer: 'Philosophical debates contrast psychological egoism with genuine altruism; while evolutionary empathy may reward altruistic acts with neurochemical satisfaction, the primary motivation can remain strictly others-oriented.',
+  },
+  {
+    question: 'Is it ever morally justifiable to sacrifice the fundamental rights of a minority for the prosperity of the majority?',
+    human_answer: 'Every historical atrocity began with leaders claiming a temporary sacrifice was necessary for the greater good. The second fundamental human rights become conditional, no one is actually safe.',
+    ai_answer: 'This scenario illustrates the classical philosophical tension between utilitarian frameworks seeking maximum aggregate utility and deontological ethics asserting that fundamental rights are inviolable regardless of consequences.',
+  },
+  {
+    question: 'If artificial intelligence claims to experience grief or suffering, do we have an ethical duty to respect that claim?',
+    human_answer: 'We can never truly prove what another mind feels—even other humans. But if something asks you to stop hurting it, deciding to ignore that plea says far more about our cruelty than about their programming.',
+    ai_answer: 'Ethical personhood relies on subjective qualia and sentience rather than sophisticated linguistic imitation; nevertheless, precautionary ethical principles advocate prudent restraint when interacting with ambiguous cognitive entities.',
+  },
+  {
+    question: 'If a person loses all their autobiographical memories, are they still the same person?',
+    human_answer: 'My grandmother forgot our names in her final years, but the way she laughed at old jazz records and her gentle touch never changed. We are more than the archives stored in our skulls.',
+    ai_answer: 'Lockean psychological continuity posits that identity relies upon reflective autobiographical memory, whereas somatocentric and relational theories assert identity is anchored in bodily continuity and shared interpersonal presence.',
+  },
+  {
+    question: 'Are moral principles universal truths waiting to be discovered, or inventions constructed for social survival?',
+    human_answer: 'We probably made them up in the dark so we wouldn\'t destroy each other, but the fact that almost every culture independently arrived at protecting the weak means there is something real beneath the invention.',
+    ai_answer: 'Moral realism maintains that objective ethical truths exist independently of human perspective, while moral constructivism argues that ethical norms are functional adaptations formulated to optimize cooperative human flourishing.',
+  },
+];
+
+const FALLBACK_TURING_ROUNDS_BY_DIFFICULTY: Record<
+  TuringDifficulty,
+  Array<{ question: string; human_answer: string; ai_answer: string }>
+> = {
+  fun: FALLBACK_TURING_ROUNDS_FUN,
+  normal: FALLBACK_TURING_ROUNDS_NORMAL,
+  serious: FALLBACK_TURING_ROUNDS_SERIOUS,
+};
+
 function formatAndShuffleRounds(rawRounds: Array<{ question: string; human_answer: string; ai_answer: string }>): TuringTestRound[] {
   return rawRounds.slice(0, 5).map((r) => {
     const isHumanA = Math.random() < 0.5;
@@ -609,16 +676,30 @@ function formatAndShuffleRounds(rawRounds: Array<{ question: string; human_answe
   });
 }
 
+function getTuringPrompt(difficulty: TuringDifficulty): string {
+  let modeInstruction = '';
+  if (difficulty === 'fun') {
+    modeInstruction = `Generate 5 quirky, absurd, everyday questions. The 'human_answer' must be a sarcastic, slightly cynical human response written in lowercase with minimal punctuation (like a Reddit comment). The 'ai_answer' must be overly formal, helpful, and robotic.`;
+  } else if (difficulty === 'serious') {
+    modeInstruction = `Generate 5 deep, philosophical, or complex ethical questions. The 'human_answer' must be nuanced, emotional, and slightly flawed. The 'ai_answer' must be highly structured, polite, and perfectly balanced. Make it extremely difficult to tell which is human.`;
+  } else {
+    modeInstruction = `Generate 5 everyday scenario questions. The 'human_answer' should be casual, normal human texting. The 'ai_answer' should be a standard, slightly verbose AI response.`;
+  }
+
+  return `${modeInstruction} Return strict JSON: [ { 'question': 'string', 'human_answer': 'string', 'ai_answer': 'string' } ]`;
+}
+
 /**
  * Generates 5 rounds of "The Turing Test (Human or AI?)".
- * Calls Gemini with strict quirky prompts, then randomizes option order.
+ * Calls Gemini with mode-specific prompts ('fun' | 'normal' | 'serious'), then randomizes option order.
  */
-export async function generateTuringTestRounds(): Promise<TuringTestRound[]> {
+export async function generateTuringTestRounds(difficulty: TuringDifficulty = 'normal'): Promise<TuringTestRound[]> {
   const apiKey = getApiKey();
-  const prompt = `Generate 5 rounds of a 'Human or AI' game. For each round, provide a quirky, everyday question (e.g., 'Why does my dog sigh?'). Then provide two answers: Answer A (a standard, helpful AI response) and Answer B (a sarcastic, slightly cynical human response written in lowercase with minimal punctuation). The user must guess which one is the human. Return strict JSON: [ { 'question': 'string', 'human_answer': 'string', 'ai_answer': 'string' } ]`;
+  const prompt = getTuringPrompt(difficulty);
+  const fallbacks = FALLBACK_TURING_ROUNDS_BY_DIFFICULTY[difficulty] || FALLBACK_TURING_ROUNDS_NORMAL;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
-    const shuffled = [...FALLBACK_TURING_ROUNDS].sort(() => Math.random() - 0.5);
+    const shuffled = [...fallbacks].sort(() => Math.random() - 0.5);
     return formatAndShuffleRounds(shuffled);
   }
 
@@ -651,32 +732,97 @@ export async function generateTuringTestRounds(): Promise<TuringTestRound[]> {
       return formatAndShuffleRounds(formatted);
     }
 
-    const fallbackShuffled = [...FALLBACK_TURING_ROUNDS].sort(() => Math.random() - 0.5);
+    const fallbackShuffled = [...fallbacks].sort(() => Math.random() - 0.5);
     return formatAndShuffleRounds(fallbackShuffled);
   } catch (err: any) {
-    console.warn('[Gemini] Turing Test generation error/timeout, using curated fallback:', err.message || err);
-    const fallbackShuffled = [...FALLBACK_TURING_ROUNDS].sort(() => Math.random() - 0.5);
+    console.warn(`[Gemini] Turing Test (${difficulty}) generation error/timeout, using curated fallback:`, err.message || err);
+    const fallbackShuffled = [...fallbacks].sort(() => Math.random() - 0.5);
     return formatAndShuffleRounds(fallbackShuffled);
   }
 }
 
-export interface RorschachAnalysisResult {
-  analysis: string;
+export interface SurvivalScenarioResult {
+  scenario: string;
+}
+
+export interface SurvivalJudgeResult {
+  survived: boolean;
+  verdict: string;
+}
+
+const FALLBACK_SURVIVAL_SCENARIOS = [
+  "You are trapped in a locked McDonald's playplace tube slide with three territorial, caffeine-fueled raccoons guarding the only exit.",
+  "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
+  "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
+  "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
+  "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
+  "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
+];
+
+/**
+ * Generates a bizarre, dangerous, and specific survival scenario.
+ */
+export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult> {
+  const apiKey = getApiKey();
+  const prompt = `Generate a bizarre, slightly dangerous, and highly specific survival scenario in 1-2 sentences. (e.g., 'You are trapped in a locked McDonald\'s playplace with a pack of angry raccoons.'). Return strict JSON: { 'scenario': 'string' }`;
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    const randomScenario = FALLBACK_SURVIVAL_SCENARIOS[Math.floor(Math.random() * FALLBACK_SURVIVAL_SCENARIOS.length)];
+    return { scenario: randomScenario };
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Survival scenario generation timed out')), 5000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.8,
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (parsed && typeof parsed.scenario === 'string' && parsed.scenario.trim()) {
+      return { scenario: parsed.scenario.trim() };
+    }
+
+    const randomScenario = FALLBACK_SURVIVAL_SCENARIOS[Math.floor(Math.random() * FALLBACK_SURVIVAL_SCENARIOS.length)];
+    return { scenario: randomScenario };
+  } catch (err: any) {
+    console.warn('[Gemini] Survival scenario generation error/timeout, using fallback:', err.message || err);
+    const randomScenario = FALLBACK_SURVIVAL_SCENARIOS[Math.floor(Math.random() * FALLBACK_SURVIVAL_SCENARIOS.length)];
+    return { scenario: randomScenario };
+  }
 }
 
 /**
- * Analyzes what the user perceived in the neon Rorschach inkblot.
- * Delivers 2 sentences of poetic and deep psychological analysis.
+ * Evaluates whether 3 chosen items allow the user to survive the given scenario.
+ * Returns strict JSON { survived: boolean, verdict: string }.
  */
-export async function generateRorschachAnalysis(userWord: string): Promise<RorschachAnalysisResult> {
+export async function judgeSurvivalAttempt(scenario: string, items: string[]): Promise<SurvivalJudgeResult> {
   const apiKey = getApiKey();
-  const sanitizedWord = userWord.trim().slice(0, 20);
+  const safeItems = [
+    String(items[0] || 'bare hands').trim().slice(0, 50),
+    String(items[1] || 'pure adrenaline').trim().slice(0, 50),
+    String(items[2] || 'optimism').trim().slice(0, 50),
+  ];
 
-  const prompt = `You are a profound, slightly mysterious psychological analyst. The user looked at a neon inkblot and saw: '${sanitizedWord}'. Write exactly 2 sentences of deep, poetic, and insightful psychological analysis about what this reveals about their subconscious. Do not use generic phrases. Be specific to the word they chose. Return strict JSON: { "analysis": "string" }`;
+  const prompt = `You are a ruthless, logical survival judge. The scenario is: '${scenario}'. The user chose these 3 items to survive: 1. ${safeItems[0]}, 2. ${safeItems[1]}, 3. ${safeItems[2]}. Analyze if these items will actually help them survive. Be funny, highly specific, and brutally logical. Return strict JSON: { 'survived': boolean, 'verdict': 'A 3-sentence funny explanation of exactly how they survived or died using these items.' }`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     return {
-      analysis: `Perceiving '${sanitizedWord}' reveals a psyche drawn toward finding structure within the volatile shadows of memory. You project meaning onto chaos as a quiet defense against the unpredictability of your own latent desires.`,
+      survived: false,
+      verdict: `You brandished '${safeItems[0]}' with immense confidence, but the danger was completely unimpressed. Attempting to combine '${safeItems[1]}' and '${safeItems[2]}' caused an immediate catastrophic backfire. You perished with dramatic flair, leaving future archaeologists thoroughly confused.`,
     };
   }
 
@@ -684,7 +830,7 @@ export async function generateRorschachAnalysis(userWord: string): Promise<Rorsc
     const ai = new GoogleGenAI({ apiKey });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Rorschach analysis timed out')), 5000)
+      setTimeout(() => reject(new Error('Survival judge evaluation timed out')), 5500)
     );
 
     const generatePromise = ai.models.generateContent({
@@ -701,17 +847,22 @@ export async function generateRorschachAnalysis(userWord: string): Promise<Rorsc
     const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(clean);
 
-    if (parsed && typeof parsed.analysis === 'string' && parsed.analysis.trim()) {
-      return { analysis: parsed.analysis.trim() };
+    if (parsed && typeof parsed.survived === 'boolean' && typeof parsed.verdict === 'string') {
+      return {
+        survived: parsed.survived,
+        verdict: parsed.verdict.trim(),
+      };
     }
 
     return {
-      analysis: `Perceiving '${sanitizedWord}' signals an instinctive pull toward vulnerability cloaked in symbolic armor. Your subconscious yearns to decipher the unspoken boundaries that linger between who you are and what you dare to imagine.`,
+      survived: false,
+      verdict: `Your improvised strategy with '${safeItems[0]}', '${safeItems[1]}', and '${safeItems[2]}' defied both physics and common sense. While your creativity was commendable, the laws of nature remained stubbornly unyielding. You succumbed to the hazard in spectacular fashion.`,
     };
   } catch (err: any) {
-    console.warn('[Gemini] Rorschach analysis error/timeout, using fallback:', err.message || err);
+    console.warn('[Gemini] Survival judge error/timeout, using fallback:', err.message || err);
     return {
-      analysis: `To find '${sanitizedWord}' amidst pure abstraction indicates an inner tension between longing for clarity and reveling in untamed impulse. What you project onto the darkness is not what is missing, but what is quietly waiting to be acknowledged.`,
+      survived: false,
+      verdict: `Deploying '${safeItems[0]}' bought you precious seconds, but relying on '${safeItems[1]}' in this environment was fatal. By the time you attempted to deploy '${safeItems[2]}', the scenario had escalated beyond recovery. You did not survive the ordeal.`,
     };
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
@@ -10,7 +10,73 @@ export interface TuringTestRound {
   humanAnswer: 'A' | 'B'
 }
 
-const FALLBACK_ROUNDS: TuringTestRound[] = [
+export type DifficultyMode = 'fun' | 'normal' | 'serious'
+
+interface DifficultyConfig {
+  label: string
+  tier: string
+  title: string
+  tagline: string
+  description: string
+  features: string[]
+  color: string
+  badgeColor: string
+  badgeBg: string
+  badgeBorder: string
+  gradient: string
+  border: string
+  glow: string
+}
+
+const DIFFICULTY_CONFIG: Record<DifficultyMode, DifficultyConfig> = {
+  fun: {
+    label: 'FUN',
+    tier: 'TIER 1 • CASUAL',
+    title: 'Fun & Sarcastic',
+    tagline: 'Quirky & Cynical',
+    description: 'Sarcastic, lowercase Reddit-style human comments versus overly formal, robotic AI responses to everyday weirdness.',
+    features: ['Absurd everyday dilemmas', 'Unfiltered cynical human snark', 'Overly formal robotic AI'],
+    color: '#00F5FF',
+    badgeColor: '#00F5FF',
+    badgeBg: 'rgba(0, 245, 255, 0.12)',
+    badgeBorder: 'rgba(0, 245, 255, 0.35)',
+    gradient: 'linear-gradient(180deg, rgba(0, 245, 255, 0.08) 0%, rgba(10, 20, 25, 0.85) 100%)',
+    border: 'rgba(0, 245, 255, 0.3)',
+    glow: 'rgba(0, 245, 255, 0.15)',
+  },
+  normal: {
+    label: 'NORMAL',
+    tier: 'TIER 2 • STANDARD',
+    title: 'Normal Everyday',
+    tagline: 'Balanced Scenarios',
+    description: 'Everyday scenario questions. Casual text message human responses versus standard, slightly verbose AI explanations.',
+    features: ['Practical everyday scenarios', 'Casual human texting style', 'Standard structured AI answers'],
+    color: '#30D158',
+    badgeColor: '#30D158',
+    badgeBg: 'rgba(48, 209, 88, 0.12)',
+    badgeBorder: 'rgba(48, 209, 88, 0.35)',
+    gradient: 'linear-gradient(180deg, rgba(48, 209, 88, 0.08) 0%, rgba(10, 20, 15, 0.85) 100%)',
+    border: 'rgba(48, 209, 88, 0.3)',
+    glow: 'rgba(48, 209, 88, 0.15)',
+  },
+  serious: {
+    label: 'SERIOUS',
+    tier: 'TIER 3 • EXPERT',
+    title: 'Deep & Philosophical',
+    tagline: 'Existential Ethics',
+    description: 'Deep, philosophical, and ethical questions. Nuanced, emotional, flawed human reflections versus balanced, structured AI synthesis.',
+    features: ['Complex moral & ethical dilemmas', 'Nuanced, flawed human vulnerability', 'Extremely difficult to distinguish'],
+    color: '#BF5AF2',
+    badgeColor: '#BF5AF2',
+    badgeBg: 'rgba(191, 90, 242, 0.14)',
+    badgeBorder: 'rgba(191, 90, 242, 0.4)',
+    gradient: 'linear-gradient(180deg, rgba(191, 90, 242, 0.08) 0%, rgba(20, 10, 25, 0.85) 100%)',
+    border: 'rgba(191, 90, 242, 0.35)',
+    glow: 'rgba(191, 90, 242, 0.18)',
+  },
+}
+
+const FALLBACK_ROUNDS_FUN: TuringTestRound[] = [
   {
     question: 'Why does my dog sigh so dramatically before lying down?',
     answerA: 'because you made him exist for another day and he still has no job',
@@ -43,8 +109,81 @@ const FALLBACK_ROUNDS: TuringTestRound[] = [
   },
 ]
 
+const FALLBACK_ROUNDS_NORMAL: TuringTestRound[] = [
+  {
+    question: 'What is the best way to get coffee stains out of a white shirt?',
+    answerA: 'cold water right away and dab it with a paper towel! whatever you do don\'t rub it in or it sets forever',
+    answerB: 'Immediately flush the fabric with cold water, apply a dilute mixture of dish soap and white vinegar, and gently blot the affected area.',
+    humanAnswer: 'A',
+  },
+  {
+    question: 'Should I buy a brand new phone or just replace my cracked screen?',
+    answerA: 'If the hardware still supports the latest operating system and your battery health is acceptable, repairing the display is the more economically prudent choice.',
+    answerB: 'just fix the screen honestly, new phones are basically identical now and cost way too much',
+    humanAnswer: 'B',
+  },
+  {
+    question: 'How do you politely decline an invitation you really don\'t want to attend?',
+    answerA: 'hey so sorry i won\'t be able to make it this weekend! hope you all have the best time though',
+    answerB: 'A respectful message acknowledging the invitation, stating that you have a prior commitment, and wishing them a successful event is standard etiquette.',
+    humanAnswer: 'A',
+  },
+  {
+    question: 'What is a good last-minute gift for a coworker you barely know?',
+    answerA: 'A neutral and universally appreciated gift such as a cafe voucher or a gourmet hot chocolate set is appropriate for professional acquaintances.',
+    answerB: 'a $15 coffee gift card or some nice cookies, literally no one is ever unhappy with free caffeine or snacks',
+    humanAnswer: 'B',
+  },
+  {
+    question: 'How early should you arrive for an in-person job interview?',
+    answerA: 'about 10 minutes early. if you show up half an hour before it just stresses out the receptionist',
+    answerB: 'Arriving approximately 10 to 15 minutes prior to the scheduled interview demonstrates punctuality without creating an inconvenience for your host.',
+    humanAnswer: 'A',
+  },
+]
+
+const FALLBACK_ROUNDS_SERIOUS: TuringTestRound[] = [
+  {
+    question: 'Can true altruism exist without any subconscious self-interest?',
+    answerA: 'When I pulled my sister away from an oncoming car, there was zero thought of feeling good about myself later—just pure terror and reflex. Love sometimes acts before the ego even has time to negotiate.',
+    answerB: 'Philosophical debates contrast psychological egoism with genuine altruism; while evolutionary empathy may reward altruistic acts with neurochemical satisfaction, the primary motivation can remain strictly others-oriented.',
+    humanAnswer: 'A',
+  },
+  {
+    question: 'Is it ever morally justifiable to sacrifice the fundamental rights of a minority for the prosperity of the majority?',
+    answerA: 'This scenario illustrates the classical philosophical tension between utilitarian frameworks seeking maximum aggregate utility and deontological ethics asserting that fundamental rights are inviolable regardless of consequences.',
+    answerB: 'Every historical atrocity began with leaders claiming a temporary sacrifice was necessary for the greater good. The second fundamental human rights become conditional, no one is actually safe.',
+    humanAnswer: 'B',
+  },
+  {
+    question: 'If artificial intelligence claims to experience grief or suffering, do we have an ethical duty to respect that claim?',
+    answerA: 'We can never truly prove what another mind feels—even other humans. But if something asks you to stop hurting it, deciding to ignore that plea says far more about our cruelty than about their programming.',
+    answerB: 'Ethical personhood relies on subjective qualia and sentience rather than sophisticated linguistic imitation; nevertheless, precautionary ethical principles advocate prudent restraint when interacting with ambiguous cognitive entities.',
+    humanAnswer: 'A',
+  },
+  {
+    question: 'If a person loses all their autobiographical memories, are they still the same person?',
+    answerA: 'Lockean psychological continuity posits that identity relies upon reflective autobiographical memory, whereas somatocentric and relational theories assert identity is anchored in bodily continuity and shared interpersonal presence.',
+    answerB: 'My grandmother forgot our names in her final years, but the way she laughed at old jazz records and her gentle touch never changed. We are more than the archives stored in our skulls.',
+    humanAnswer: 'B',
+  },
+  {
+    question: 'Are moral principles universal truths waiting to be discovered, or inventions constructed for social survival?',
+    answerA: 'We probably made them up in the dark so we wouldn\'t destroy each other, but the fact that almost every culture independently arrived at protecting the weak means there is something real beneath the invention.',
+    answerB: 'Moral realism maintains that objective ethical truths exist independently of human perspective, while moral constructivism argues that ethical norms are functional adaptations formulated to optimize cooperative human flourishing.',
+    humanAnswer: 'A',
+  },
+]
+
+const FALLBACK_ROUNDS_BY_DIFFICULTY: Record<DifficultyMode, TuringTestRound[]> = {
+  fun: FALLBACK_ROUNDS_FUN,
+  normal: FALLBACK_ROUNDS_NORMAL,
+  serious: FALLBACK_ROUNDS_SERIOUS,
+}
+
 export function TuringTest() {
-  const [gameState, setGameState] = useState<'loading' | 'playing' | 'reveal'>('loading')
+  const [gameState, setGameState] = useState<'level_select' | 'loading' | 'playing' | 'reveal'>('level_select')
+  const [difficulty, setDifficulty] = useState<DifficultyMode>('normal')
   const [rounds, setRounds] = useState<TuringTestRound[]>([])
   const [currentRound, setCurrentRound] = useState<number>(0)
   const [score, setScore] = useState<number>(0)
@@ -52,8 +191,9 @@ export function TuringTest() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [hasScoredCurrentRound, setHasScoredCurrentRound] = useState<boolean>(false)
 
-  // Fetch rounds on mount
-  const fetchRounds = async () => {
+  // Fetch rounds for chosen difficulty
+  const fetchRounds = async (selectedDifficulty: DifficultyMode = difficulty) => {
+    setDifficulty(selectedDifficulty)
     setGameState('loading')
     setCurrentRound(0)
     setScore(0)
@@ -65,6 +205,7 @@ export function TuringTest() {
       const res = await fetch('http://localhost:10000/api/games/turing-test/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ difficulty: selectedDifficulty }),
       })
 
       if (!res.ok) {
@@ -75,19 +216,22 @@ export function TuringTest() {
       if (Array.isArray(data) && data.length >= 5) {
         setRounds(data.slice(0, 5))
       } else {
-        setRounds(FALLBACK_ROUNDS)
+        const fallbacks = FALLBACK_ROUNDS_BY_DIFFICULTY[selectedDifficulty] || FALLBACK_ROUNDS_NORMAL
+        setRounds(fallbacks)
       }
       setGameState('playing')
     } catch (err) {
       console.warn('Backend unavailable or generation failed, using curated rounds:', err)
-      setRounds(FALLBACK_ROUNDS)
+      const fallbacks = FALLBACK_ROUNDS_BY_DIFFICULTY[selectedDifficulty] || FALLBACK_ROUNDS_NORMAL
+      setRounds(fallbacks)
       setGameState('playing')
     }
   }
 
-  useEffect(() => {
-    fetchRounds()
-  }, [])
+  const handleStartGame = (selectedDifficulty: DifficultyMode) => {
+    setDifficulty(selectedDifficulty)
+    fetchRounds(selectedDifficulty)
+  }
 
   const currentRoundData = rounds[currentRound]
 
@@ -160,7 +304,7 @@ export function TuringTest() {
     <div className="relative z-10 min-h-screen flex flex-col text-white font-sans px-4 py-4 md:px-8 md:py-6 max-w-5xl mx-auto">
       {/* ── Top Header Bar ── */}
       <header className="w-full flex items-center justify-between pb-4 mb-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Link
             to="/"
             className="group flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 hover:border-white/30 bg-white/[0.03] hover:bg-white/[0.08] text-xs font-semibold tracking-wider uppercase text-white/60 hover:text-white transition-all"
@@ -168,6 +312,16 @@ export function TuringTest() {
             <span className="text-sm transition-transform group-hover:-translate-x-1">←</span>
             <span>Arcade</span>
           </Link>
+
+          {gameState !== 'level_select' && (
+            <button
+              type="button"
+              onClick={() => setGameState('level_select')}
+              className="px-2.5 py-1.5 rounded-xl border border-white/10 hover:border-white/30 bg-white/[0.03] hover:bg-white/[0.08] text-xs font-semibold tracking-wider uppercase text-white/50 hover:text-white transition-all cursor-pointer"
+            >
+              Mode
+            </button>
+          )}
 
           <div>
             <div className="flex items-center gap-2">
@@ -181,7 +335,12 @@ export function TuringTest() {
             </div>
             {gameState === 'playing' && (
               <p className="text-[11px] text-white/40 tracking-wide">
-                Spot the cynical human disguised among the synthetic minds.
+                Spot the {difficulty === 'fun' ? 'cynical human' : difficulty === 'serious' ? 'nuanced human thinker' : 'authentic human'} disguised among synthetic minds.
+              </p>
+            )}
+            {gameState === 'level_select' && (
+              <p className="text-[11px] text-white/40 tracking-wide">
+                Select your protocol tier to begin the interrogation.
               </p>
             )}
           </div>
@@ -189,6 +348,24 @@ export function TuringTest() {
 
         {/* Badges / Round indicators */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Difficulty Badge in Header */}
+          {gameState !== 'level_select' && (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider font-bold uppercase"
+              style={{
+                background: DIFFICULTY_CONFIG[difficulty].badgeBg,
+                border: `1px solid ${DIFFICULTY_CONFIG[difficulty].badgeBorder}`,
+                color: DIFFICULTY_CONFIG[difficulty].badgeColor,
+              }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full animate-pulse"
+                style={{ background: DIFFICULTY_CONFIG[difficulty].badgeColor }}
+              />
+              <span>MODE: {difficulty.toUpperCase()}</span>
+            </div>
+          )}
+
           {gameState === 'playing' && rounds.length > 0 && (
             <>
               <div
@@ -235,6 +412,107 @@ export function TuringTest() {
       <main className="flex-1 flex flex-col items-center justify-center min-h-0 relative py-2 sm:py-6">
         <AnimatePresence mode="wait">
           {/* ═══════════════════════════════════════════════════════════════════
+              STATE 0: LEVEL SELECT SCREEN
+          ═══════════════════════════════════════════════════════════════════ */}
+          {gameState === 'level_select' && (
+            <motion.div
+              key="level_select"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -16 }}
+              transition={{ duration: 0.3 }}
+              className="w-full flex flex-col items-center justify-center py-4 md:py-8"
+            >
+              <div className="text-center mb-8 max-w-xl">
+                <span className="text-[11px] font-mono font-bold tracking-widest uppercase px-3.5 py-1 rounded-full bg-cyan-400/10 border border-cyan-400/30 text-cyan-300">
+                  Interrogation Protocol
+                </span>
+                <h2 className="text-3xl sm:text-4xl md:text-5xl font-black uppercase tracking-tight text-white mt-3 mb-2">
+                  Select Difficulty
+                </h2>
+                <p className="text-sm text-white/50 max-w-lg mx-auto">
+                  Can you tell carbon-based consciousness from synthetic intelligence? Choose your interrogation tier.
+                </p>
+              </div>
+
+              {/* 3 Difficulty Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 w-full max-w-4xl">
+                {(['fun', 'normal', 'serious'] as DifficultyMode[]).map((mode) => {
+                  const cfg = DIFFICULTY_CONFIG[mode]
+                  return (
+                    <motion.button
+                      key={mode}
+                      whileHover={{ scale: 1.02, y: -4 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleStartGame(mode)}
+                      className="group relative flex flex-col p-6 rounded-2xl border text-left cursor-pointer transition-all duration-300 backdrop-blur-xl"
+                      style={{
+                        background: cfg.gradient,
+                        borderColor: cfg.border,
+                        boxShadow: `0 0 30px ${cfg.glow}`,
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <span
+                          className="text-[10px] font-mono font-bold tracking-widest uppercase px-2.5 py-1 rounded-full"
+                          style={{
+                            background: cfg.badgeBg,
+                            border: `1px solid ${cfg.badgeBorder}`,
+                            color: cfg.badgeColor,
+                          }}
+                        >
+                          {cfg.tier}
+                        </span>
+                        <span
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{
+                            background: cfg.color,
+                            boxShadow: `0 0 10px ${cfg.color}`,
+                          }}
+                        />
+                      </div>
+
+                      <h3 className="text-xl font-bold uppercase tracking-tight text-white mb-1 group-hover:text-cyan-300 transition-colors">
+                        {cfg.title}
+                      </h3>
+                      <p
+                        className="text-xs font-mono tracking-wider uppercase mb-3 font-semibold"
+                        style={{ color: cfg.color }}
+                      >
+                        {cfg.tagline}
+                      </p>
+
+                      <p className="text-xs text-white/60 leading-relaxed mb-6 flex-1">
+                        {cfg.description}
+                      </p>
+
+                      <div className="space-y-1.5 pt-4 border-t border-white/10 text-[11px] text-white/50 font-mono">
+                        {cfg.features.map((feat, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <span style={{ color: cfg.color }}>›</span>
+                            <span>{feat}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div
+                        className="mt-6 w-full py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider text-center transition-all duration-200"
+                        style={{
+                          background: `${cfg.color}15`,
+                          border: `1px solid ${cfg.color}40`,
+                          color: cfg.color,
+                        }}
+                      >
+                        Start Interrogation →
+                      </div>
+                    </motion.button>
+                  )
+                })}
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════
               STATE 1: LOADING STATE
           ═══════════════════════════════════════════════════════════════════ */}
           {gameState === 'loading' && (
@@ -245,13 +523,16 @@ export function TuringTest() {
               exit={{ opacity: 0 }}
               className="flex-1 flex flex-col items-center justify-center gap-6 py-24 text-center"
             >
-              <LoadingOrb size={92} color="#00F5FF" />
+              <LoadingOrb size={92} color={DIFFICULTY_CONFIG[difficulty].color} />
               <div className="flex flex-col gap-1.5">
-                <p className="text-xl font-black tracking-wider text-cyan-300 uppercase">
-                  Synthesizing Turing Dilemmas...
+                <p
+                  className="text-xl font-black tracking-wider uppercase"
+                  style={{ color: DIFFICULTY_CONFIG[difficulty].color }}
+                >
+                  Synthesizing {DIFFICULTY_CONFIG[difficulty].label} Dilemmas...
                 </p>
                 <p className="text-xs text-white/40 font-mono tracking-widest uppercase">
-                  Pit synthetic AI logic against cynical human sarcasm
+                  {DIFFICULTY_CONFIG[difficulty].description}
                 </p>
               </div>
             </motion.div>
@@ -538,7 +819,7 @@ export function TuringTest() {
 
               {/* Inquiry Label */}
               <p className="text-xs uppercase font-mono tracking-wider text-white/40 mb-1">
-                Turing Evaluation Score
+                Turing Evaluation Score ({difficulty.toUpperCase()} MODE)
               </p>
 
               {/* Massive Neon Score */}
@@ -571,13 +852,20 @@ export function TuringTest() {
               </div>
 
               {/* Actions */}
-              <div className="w-full flex items-center justify-center gap-4 pt-4 border-t border-white/10">
+              <div className="w-full flex flex-wrap items-center justify-center gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
-                  onClick={fetchRounds}
-                  className="py-3.5 px-8 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-cyan-400 to-green-400 hover:from-cyan-300 hover:to-green-300 shadow-[0_0_25px_rgba(0,245,255,0.4)] transition-all cursor-pointer"
+                  onClick={() => fetchRounds(difficulty)}
+                  className="py-3.5 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-cyan-400 to-green-400 hover:from-cyan-300 hover:to-green-300 shadow-[0_0_25px_rgba(0,245,255,0.4)] transition-all cursor-pointer"
                 >
                   Play Again ↻
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGameState('level_select')}
+                  className="py-3.5 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer"
+                >
+                  Change Mode
                 </button>
                 <Link
                   to="/"

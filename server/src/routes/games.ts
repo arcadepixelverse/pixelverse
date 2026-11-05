@@ -6,7 +6,9 @@ import {
   generateJailbreakTurn,
   generateHigherLowerQuestions,
   generateTuringTestRounds,
-  generateRorschachAnalysis,
+  TuringDifficulty,
+  generateSurvivalScenario,
+  judgeSurvivalAttempt,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
@@ -611,14 +613,21 @@ gamesRouter.post(
  * ── 7. The Turing Test: Generate 5 Rounds ────────────────────────────────────
  * POST /api/games/turing-test/generate
  * Protected by quotaGate.
- * Generates 5 quirky question rounds with human and AI answers in randomized order.
+ * Accepts { difficulty: 'fun' | 'normal' | 'serious' } in request body.
+ * Generates 5 question rounds with human and AI answers in randomized order.
  */
 gamesRouter.post(
   ['/turing-test/generate', '/api/games/turing-test/generate'],
   quotaGate,
-  async (_req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     try {
-      const rounds = await generateTuringTestRounds();
+      const rawDifficulty = req.body?.difficulty;
+      const validDifficulty: TuringDifficulty =
+        rawDifficulty === 'fun' || rawDifficulty === 'serious' || rawDifficulty === 'normal'
+          ? rawDifficulty
+          : 'normal';
+
+      const rounds = await generateTuringTestRounds(validDifficulty);
       return res.json(rounds);
     } catch (err: any) {
       console.error('[turing-test/generate] Error:', err);
@@ -631,37 +640,63 @@ gamesRouter.post(
 );
 
 /**
- * ── 8. The Rorschach: Analyze Subconscious ───────────────────────────────────
- * POST /api/games/rorschach/analyze
+ * ── 8. Survival Protocol: Start ──────────────────────────────────────────────
+ * POST /api/games/survival/start
  * Protected by quotaGate.
- * Accepts { userWord } (a single word or short phrase, max 20 chars).
- * Returns 2 sentences of poetic psychological interpretation.
+ * Generates a bizarre, dangerous, and specific survival scenario.
  */
 gamesRouter.post(
-  ['/rorschach/analyze', '/api/games/rorschach/analyze'],
+  ['/survival/start', '/api/games/survival/start'],
+  quotaGate,
+  async (_req: Request, res: Response) => {
+    try {
+      const result = await generateSurvivalScenario();
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[survival/start] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to generate survival scenario.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 9. Survival Protocol: Judge ──────────────────────────────────────────────
+ * POST /api/games/survival/judge
+ * Protected by quotaGate.
+ * Accepts { scenario, items: string[] }.
+ * Evaluates whether the 3 user items allow survival.
+ */
+gamesRouter.post(
+  ['/survival/judge', '/api/games/survival/judge'],
   quotaGate,
   async (req: Request, res: Response) => {
     try {
-      const { userWord } = req.body;
+      const { scenario, items } = req.body || {};
 
-      if (!userWord || typeof userWord !== 'string' || !userWord.trim()) {
+      if (!scenario || typeof scenario !== 'string' || !scenario.trim()) {
         return res.status(400).json({
           error: 'INVALID_REQUEST',
-          message: 'userWord is required.',
+          message: 'Scenario string is required.',
         });
       }
 
-      const trimmed = userWord.trim().slice(0, 20);
-      const result = await generateRorschachAnalysis(trimmed);
+      if (!Array.isArray(items) || items.length < 3 || items.some((item) => typeof item !== 'string' || !item.trim())) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'Exactly 3 non-empty item strings are required.',
+        });
+      }
 
-      return res.json({
-        analysis: result.analysis,
-      });
+      const result = await judgeSurvivalAttempt(scenario, items.slice(0, 3));
+      return res.json(result);
     } catch (err: any) {
-      console.error('[rorschach/analyze] Error:', err);
+      console.error('[survival/judge] Error:', err);
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to analyze Rorschach perception.',
+        message: err.message || 'Failed to judge survival attempt.',
       });
     }
   }

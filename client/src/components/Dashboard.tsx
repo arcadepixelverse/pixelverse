@@ -44,12 +44,12 @@ const GAMES = [
     iconBg: 'rgba(255, 159, 10, 0.12)',
   },
   {
-    title: 'The Rorschach',
-    description: "An inkblot. Infinite interpretations. What does the AI see in chaos?",
-    icon: '🌀',
-    neonClass: 'neon-pink',
-    iconBg: 'rgba(255, 55, 95, 0.12)',
-    href: '/games/rorschach',
+    title: 'Survival Protocol',
+    description: 'Bizarre life-or-death scenario. Pick 3 items to survive the ruthless AI judge.',
+    icon: '☣️',
+    neonClass: 'neon-red',
+    iconBg: 'rgba(255, 69, 58, 0.12)',
+    href: '/games/survival',
   },
 ]
 

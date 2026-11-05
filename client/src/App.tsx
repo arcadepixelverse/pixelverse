@@ -4,7 +4,7 @@ import { HigherLower } from './pages/HigherLower'
 import { Jailbreak } from './pages/Jailbreak'
 import { MindReader } from './pages/MindReader'
 import { TuringTest } from './pages/TuringTest'
-import { Rorschach } from './pages/Rorschach'
+import { SurvivalProtocol } from './pages/SurvivalProtocol'
 
 function App() {
   return (
@@ -24,7 +24,7 @@ function App() {
         <Route path="/games/jailbreak" element={<Jailbreak />} />
         <Route path="/games/mind-reader" element={<MindReader />} />
         <Route path="/games/turing-test" element={<TuringTest />} />
-        <Route path="/games/rorschach" element={<Rorschach />} />
+        <Route path="/games/survival" element={<SurvivalProtocol />} />
       </Routes>
     </BrowserRouter>
   )
