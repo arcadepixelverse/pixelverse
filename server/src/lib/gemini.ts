@@ -743,6 +743,10 @@ export async function generateTuringTestRounds(difficulty: TuringDifficulty = 'n
 
 export interface SurvivalScenarioResult {
   scenario: string;
+  mode: 'mcq' | 'typing';
+  required_count: number;
+  allow_multiple: boolean;
+  options: string[];
 }
 
 export interface SurvivalJudgeResult {
@@ -750,25 +754,61 @@ export interface SurvivalJudgeResult {
   verdict: string;
 }
 
-const FALLBACK_SURVIVAL_SCENARIOS = [
-  "You are trapped in a locked McDonald's playplace tube slide with three territorial, caffeine-fueled raccoons guarding the only exit.",
-  "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
-  "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
-  "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
-  "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
-  "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
+const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
+  {
+    scenario: "You are trapped in a locked McDonald's playplace tube slide with three territorial, caffeine-fueled raccoons guarding the only exit.",
+    mode: "mcq",
+    required_count: 2,
+    allow_multiple: true,
+    options: ["A half-eaten Happy Meal cheeseburger", "A squeaky clown horn", "A high-powered pocket laser pointer", "A bottle of industrial bleach"],
+  },
+  {
+    scenario: "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
+    mode: "typing",
+    required_count: 3,
+    allow_multiple: false,
+    options: [],
+  },
+  {
+    scenario: "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
+    mode: "mcq",
+    required_count: 1,
+    allow_multiple: false,
+    options: ["An oversized loaf of French bread", "An unopened umbrella", "A heavy woolen winter coat", "A bluetooth speaker playing hawk screeches"],
+  },
+  {
+    scenario: "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
+    mode: "typing",
+    required_count: 2,
+    allow_multiple: false,
+    options: [],
+  },
+  {
+    scenario: "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
+    mode: "mcq",
+    required_count: 1,
+    allow_multiple: false,
+    options: ["A heavy metal crowbar", "A roll of industrial bubble wrap", "An emergency fire axe in a glass box", "A pair of heavy-duty insulated gloves"],
+  },
+  {
+    scenario: "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
+    mode: "typing",
+    required_count: 1,
+    allow_multiple: false,
+    options: [],
+  },
 ];
 
 /**
- * Generates a bizarre, dangerous, and specific survival scenario.
+ * Generates a bizarre, dangerous, and specific survival scenario with dynamic mode (mcq or typing).
  */
 export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult> {
   const apiKey = getApiKey();
-  const prompt = `Generate a bizarre, slightly dangerous, and highly specific survival scenario in 1-2 sentences. (e.g., 'You are trapped in a locked McDonald\'s playplace with a pack of angry raccoons.'). Return strict JSON: { 'scenario': 'string' }`;
+  const prompt = `Generate a bizarre survival scenario. Randomly choose 'mcq' or 'typing' mode. If 'mcq', provide 4 options and decide if it's single or multiple choice. If 'typing', set options to []. Randomly pick a required_count between 1 and 3. Return strict JSON: { "scenario": "string", "mode": "mcq" | "typing", "required_count": 1 | 2 | 3, "allow_multiple": boolean, "options": ["string", "string", "string", "string"] }`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
-    const randomScenario = FALLBACK_SURVIVAL_SCENARIOS[Math.floor(Math.random() * FALLBACK_SURVIVAL_SCENARIOS.length)];
-    return { scenario: randomScenario };
+    const randomScenario = FALLBACK_SURVIVAL_DATA[Math.floor(Math.random() * FALLBACK_SURVIVAL_DATA.length)];
+    return { ...randomScenario };
   }
 
   try {
@@ -783,7 +823,7 @@ export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.8,
+        temperature: 0.85,
       },
     });
 
@@ -793,36 +833,54 @@ export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult
     const parsed = JSON.parse(clean);
 
     if (parsed && typeof parsed.scenario === 'string' && parsed.scenario.trim()) {
-      return { scenario: parsed.scenario.trim() };
+      const mode: 'mcq' | 'typing' = parsed.mode === 'mcq' ? 'mcq' : 'typing';
+      let required_count = Number(parsed.required_count);
+      if (![1, 2, 3].includes(required_count)) {
+        required_count = mode === 'mcq' ? (parsed.allow_multiple ? 2 : 1) : 2;
+      }
+      const allow_multiple = mode === 'mcq' ? (Boolean(parsed.allow_multiple) && required_count > 1) : false;
+      const options =
+        mode === 'mcq' && Array.isArray(parsed.options) && parsed.options.length >= 4
+          ? parsed.options.slice(0, 4).map(String)
+          : mode === 'mcq'
+          ? ["Emergency fire extinguisher", "Crowbar", "Heavy wool blanket", "Strobe flashlight"]
+          : [];
+
+      return {
+        scenario: parsed.scenario.trim(),
+        mode,
+        required_count,
+        allow_multiple,
+        options,
+      };
     }
 
-    const randomScenario = FALLBACK_SURVIVAL_SCENARIOS[Math.floor(Math.random() * FALLBACK_SURVIVAL_SCENARIOS.length)];
-    return { scenario: randomScenario };
+    const randomScenario = FALLBACK_SURVIVAL_DATA[Math.floor(Math.random() * FALLBACK_SURVIVAL_DATA.length)];
+    return { ...randomScenario };
   } catch (err: any) {
     console.warn('[Gemini] Survival scenario generation error/timeout, using fallback:', err.message || err);
-    const randomScenario = FALLBACK_SURVIVAL_SCENARIOS[Math.floor(Math.random() * FALLBACK_SURVIVAL_SCENARIOS.length)];
-    return { scenario: randomScenario };
+    const randomScenario = FALLBACK_SURVIVAL_DATA[Math.floor(Math.random() * FALLBACK_SURVIVAL_DATA.length)];
+    return { ...randomScenario };
   }
 }
 
 /**
- * Evaluates whether 3 chosen items allow the user to survive the given scenario.
- * Returns strict JSON { survived: boolean, verdict: string }.
+ * Evaluates whether the user's chosen or typed items allow survival.
+ * Returns strict JSON { survived: boolean, verdict: string (max 3 sentences) }.
  */
-export async function judgeSurvivalAttempt(scenario: string, items: string[]): Promise<SurvivalJudgeResult> {
+export async function judgeSurvivalAttempt(scenario: string, userInput: string[]): Promise<SurvivalJudgeResult> {
   const apiKey = getApiKey();
-  const safeItems = [
-    String(items[0] || 'bare hands').trim().slice(0, 50),
-    String(items[1] || 'pure adrenaline').trim().slice(0, 50),
-    String(items[2] || 'optimism').trim().slice(0, 50),
-  ];
+  const safeItems = userInput
+    .map((item) => String(item || '').trim().slice(0, 80))
+    .filter(Boolean);
+  const itemsText = safeItems.length > 0 ? safeItems.join(', ') : 'nothing';
 
-  const prompt = `You are a ruthless, logical survival judge. The scenario is: '${scenario}'. The user chose these 3 items to survive: 1. ${safeItems[0]}, 2. ${safeItems[1]}, 3. ${safeItems[2]}. Analyze if these items will actually help them survive. Be funny, highly specific, and brutally logical. Return strict JSON: { 'survived': boolean, 'verdict': 'A 3-sentence funny explanation of exactly how they survived or died using these items.' }`;
+  const prompt = `The scenario is: '${scenario}'. The user chose/typed: ${itemsText}. Analyze if these items will help them survive. Be funny, highly specific, and brutally logical. Return strict JSON: { 'survived': boolean, 'verdict': 'string (max 3 sentences)' }`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     return {
       survived: false,
-      verdict: `You brandished '${safeItems[0]}' with immense confidence, but the danger was completely unimpressed. Attempting to combine '${safeItems[1]}' and '${safeItems[2]}' caused an immediate catastrophic backfire. You perished with dramatic flair, leaving future archaeologists thoroughly confused.`,
+      verdict: `You brandished '${itemsText}' with immense confidence, but the danger was completely unimpressed. Attempting this improvised maneuver caused an immediate catastrophic backfire. You perished with dramatic flair, leaving future archaeologists thoroughly confused.`,
     };
   }
 
@@ -856,13 +914,13 @@ export async function judgeSurvivalAttempt(scenario: string, items: string[]): P
 
     return {
       survived: false,
-      verdict: `Your improvised strategy with '${safeItems[0]}', '${safeItems[1]}', and '${safeItems[2]}' defied both physics and common sense. While your creativity was commendable, the laws of nature remained stubbornly unyielding. You succumbed to the hazard in spectacular fashion.`,
+      verdict: `Your improvised strategy with '${itemsText}' defied both physics and common sense. While your creativity was commendable, the laws of nature remained stubbornly unyielding. You succumbed to the hazard in spectacular fashion.`,
     };
   } catch (err: any) {
     console.warn('[Gemini] Survival judge error/timeout, using fallback:', err.message || err);
     return {
       survived: false,
-      verdict: `Deploying '${safeItems[0]}' bought you precious seconds, but relying on '${safeItems[1]}' in this environment was fatal. By the time you attempted to deploy '${safeItems[2]}', the scenario had escalated beyond recovery. You did not survive the ordeal.`,
+      verdict: `Deploying '${itemsText}' bought you precious seconds, but relying on it in this environment was fatal. The situation escalated beyond human salvageability before you could adapt. You did not survive the ordeal.`,
     };
   }
 }

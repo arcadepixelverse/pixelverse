@@ -666,15 +666,16 @@ gamesRouter.post(
  * ── 9. Survival Protocol: Judge ──────────────────────────────────────────────
  * POST /api/games/survival/judge
  * Protected by quotaGate.
- * Accepts { scenario, items: string[] }.
- * Evaluates whether the 3 user items allow survival.
+ * Accepts { scenario, userInput: string[] }.
+ * Evaluates whether the chosen/typed items allow survival.
  */
 gamesRouter.post(
   ['/survival/judge', '/api/games/survival/judge'],
   quotaGate,
   async (req: Request, res: Response) => {
     try {
-      const { scenario, items } = req.body || {};
+      const { scenario, userInput, items } = req.body || {};
+      const rawInput = Array.isArray(userInput) ? userInput : Array.isArray(items) ? items : [];
 
       if (!scenario || typeof scenario !== 'string' || !scenario.trim()) {
         return res.status(400).json({
@@ -683,14 +684,14 @@ gamesRouter.post(
         });
       }
 
-      if (!Array.isArray(items) || items.length < 3 || items.some((item) => typeof item !== 'string' || !item.trim())) {
+      if (!Array.isArray(rawInput) || rawInput.length === 0 || rawInput.some((item) => typeof item !== 'string' || !item.trim())) {
         return res.status(400).json({
           error: 'INVALID_REQUEST',
-          message: 'Exactly 3 non-empty item strings are required.',
+          message: 'Non-empty userInput array is required.',
         });
       }
 
-      const result = await judgeSurvivalAttempt(scenario, items.slice(0, 3));
+      const result = await judgeSurvivalAttempt(scenario, rawInput);
       return res.json(result);
     } catch (err: any) {
       console.error('[survival/judge] Error:', err);

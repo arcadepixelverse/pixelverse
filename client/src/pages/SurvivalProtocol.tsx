@@ -1,96 +1,112 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
+
+export interface SurvivalGameData {
+  scenario: string
+  mode: 'mcq' | 'typing'
+  required_count: number
+  allow_multiple: boolean
+  options: string[]
+}
 
 export interface SurvivalResult {
   survived: boolean
   verdict: string
 }
 
-const FALLBACK_SCENARIOS = [
-  "You are trapped in a locked McDonald's playplace tube slide with three territorial, caffeine-fueled raccoons guarding the only exit.",
-  "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
-  "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
-  "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
-  "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
-  "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
+const FALLBACK_SCENARIOS: SurvivalGameData[] = [
+  {
+    scenario: "You are trapped in a locked McDonald's playplace tube slide with three territorial, caffeine-fueled raccoons guarding the only exit.",
+    mode: "mcq",
+    required_count: 2,
+    allow_multiple: true,
+    options: [
+      "A half-eaten Happy Meal cheeseburger",
+      "A squeaky clown horn",
+      "A high-powered pocket laser pointer",
+      "A bottle of industrial bleach",
+    ],
+  },
+  {
+    scenario: "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
+    mode: "typing",
+    required_count: 3,
+    allow_multiple: false,
+    options: [],
+  },
+  {
+    scenario: "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
+    mode: "mcq",
+    required_count: 1,
+    allow_multiple: false,
+    options: [
+      "An oversized loaf of French bread",
+      "An unopened umbrella",
+      "A heavy woolen winter coat",
+      "A bluetooth speaker playing hawk screeches",
+    ],
+  },
+  {
+    scenario: "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
+    mode: "typing",
+    required_count: 2,
+    allow_multiple: false,
+    options: [],
+  },
+  {
+    scenario: "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
+    mode: "mcq",
+    required_count: 1,
+    allow_multiple: false,
+    options: [
+      "A heavy metal crowbar",
+      "A roll of industrial bubble wrap",
+      "An emergency fire axe in a glass box",
+      "A pair of heavy-duty insulated gloves",
+    ],
+  },
+  {
+    scenario: "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
+    mode: "typing",
+    required_count: 1,
+    allow_multiple: false,
+    options: [],
+  },
 ]
 
 export function SurvivalProtocol() {
   const [gameState, setGameState] = useState<'loading' | 'playing' | 'judging' | 'reveal'>('loading')
-  const [scenario, setScenario] = useState<string>('')
-  const [items, setItems] = useState<[string, string, string]>(['', '', ''])
+  const [gameData, setGameData] = useState<SurvivalGameData | null>(null)
+  const [userInput, setUserInput] = useState<string[]>([])
+  const [timeLeft, setTimeLeft] = useState<number>(60)
+  const [timerActive, setTimerActive] = useState<boolean>(false)
   const [result, setResult] = useState<SurvivalResult | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  // Fetch initial scenario
-  const fetchScenario = async () => {
-    setGameState('loading')
-    setItems(['', '', ''])
-    setResult(null)
-    setErrorMsg(null)
+  // Refs to prevent stale closures in the timer tick
+  const userInputRef = useRef<string[]>(userInput)
+  userInputRef.current = userInput
 
-    try {
-      const res = await fetch('http://localhost:10000/api/games/survival/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
+  const gameDataRef = useRef<SurvivalGameData | null>(gameData)
+  gameDataRef.current = gameData
 
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`)
-      }
-
-      const data = await res.json()
-      if (data && typeof data.scenario === 'string' && data.scenario.trim()) {
-        setScenario(data.scenario.trim())
-      } else {
-        const fallback = FALLBACK_SCENARIOS[Math.floor(Math.random() * FALLBACK_SCENARIOS.length)]
-        setScenario(fallback)
-      }
-      setGameState('playing')
-    } catch (err) {
-      console.warn('Backend unavailable or scenario generation failed, using curated scenario:', err)
-      const fallback = FALLBACK_SCENARIOS[Math.floor(Math.random() * FALLBACK_SCENARIOS.length)]
-      setScenario(fallback)
-      setGameState('playing')
-    }
-  }
-
-  useEffect(() => {
-    fetchScenario()
-  }, [])
-
-  // Update specific item in array
-  const handleItemChange = (index: number, val: string) => {
-    setItems((prev) => {
-      const next = [...prev] as [string, string, string]
-      next[index] = val
-      return next
-    })
-    if (errorMsg) setErrorMsg(null)
-  }
-
-  // Submit items to the judge
-  const handleSubmitSurvival = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-
-    const trimmedItems = items.map((i) => i.trim())
-    if (trimmedItems.some((i) => !i)) {
-      setErrorMsg('You must equip all 3 survival items before confronting the hazard.')
-      return
-    }
-
+  // Submit items to the AI judge
+  const submitToJudge = async (itemsToSubmit: string[]) => {
+    setTimerActive(false)
     setGameState('judging')
     setErrorMsg(null)
+
+    const currentScenario = gameDataRef.current?.scenario || 'Extreme emergency scenario'
 
     try {
       const res = await fetch('http://localhost:10000/api/games/survival/judge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          scenario,
-          items: trimmedItems,
+          scenario: currentScenario,
+          userInput: itemsToSubmit,
         }),
       })
 
@@ -107,7 +123,7 @@ export function SurvivalProtocol() {
       } else {
         setResult({
           survived: false,
-          verdict: `You brandished '${trimmedItems[0]}' with immense confidence, but the danger was completely unimpressed. Attempting to combine '${trimmedItems[1]}' and '${trimmedItems[2]}' caused an immediate catastrophic backfire. You perished with dramatic flair, leaving future archaeologists thoroughly confused.`,
+          verdict: `You brandished '${itemsToSubmit.join(', ')}' with immense confidence, but the danger was completely unimpressed. Attempting this improvised maneuver caused an immediate catastrophic backfire. You perished with dramatic flair, leaving future archaeologists thoroughly confused.`,
         })
       }
       setGameState('reveal')
@@ -115,18 +131,190 @@ export function SurvivalProtocol() {
       console.warn('Backend unavailable, using simulated verdict:', err)
       setResult({
         survived: false,
-        verdict: `Your improvised strategy with '${trimmedItems[0]}', '${trimmedItems[1]}', and '${trimmedItems[2]}' defied both physics and common sense. While your creativity was commendable, the laws of nature remained stubbornly unyielding. You succumbed to the hazard in spectacular fashion.`,
+        verdict: `Your improvised strategy with '${itemsToSubmit.join(', ')}' defied both physics and common sense. While your creativity was commendable, the laws of nature remained stubbornly unyielding. You succumbed to the hazard in spectacular fashion.`,
       })
       setGameState('reveal')
     }
   }
 
-  const isFormValid = items[0].trim() !== '' && items[1].trim() !== '' && items[2].trim() !== ''
+  // Handle timer reaching 0
+  const handleTimeExpired = () => {
+    setTimerActive(false)
+    const currentData = gameDataRef.current
+    const currentInput = userInputRef.current
+
+    if (!currentData) {
+      setResult({ survived: false, verdict: 'You panicked and froze. You died.' })
+      setGameState('reveal')
+      return
+    }
+
+    if (currentData.mode === 'mcq') {
+      if (currentInput.length === currentData.required_count) {
+        submitToJudge(currentInput)
+      } else {
+        setResult({ survived: false, verdict: 'You panicked and froze. You died.' })
+        setGameState('reveal')
+      }
+    } else {
+      const validInputs = currentInput.map((i) => i.trim()).filter(Boolean)
+      if (validInputs.length === currentData.required_count) {
+        submitToJudge(validInputs)
+      } else {
+        setResult({ survived: false, verdict: 'You panicked and froze. You died.' })
+        setGameState('reveal')
+      }
+    }
+  }
+
+  // 60-Second Countdown Timer
+  useEffect(() => {
+    if (gameState !== 'playing' || !timerActive) return
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval)
+          handleTimeExpired()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [gameState, timerActive])
+
+  // Fetch initial scenario and start round
+  const fetchScenario = async () => {
+    setGameState('loading')
+    setTimerActive(false)
+    setTimeLeft(60)
+    setUserInput([])
+    setResult(null)
+    setErrorMsg(null)
+
+    try {
+      const res = await fetch('http://localhost:10000/api/games/survival/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`)
+      }
+
+      const data = await res.json()
+      if (data && typeof data.scenario === 'string' && data.scenario.trim()) {
+        const mode = data.mode === 'mcq' ? 'mcq' : 'typing'
+        let required_count = Number(data.required_count)
+        if (![1, 2, 3].includes(required_count)) {
+          required_count = mode === 'mcq' ? (data.allow_multiple ? 2 : 1) : 2
+        }
+        const allow_multiple = mode === 'mcq' ? Boolean(data.allow_multiple && required_count > 1) : false
+        const options =
+          mode === 'mcq' && Array.isArray(data.options) && data.options.length >= 4
+            ? data.options.slice(0, 4)
+            : mode === 'mcq'
+            ? ["Emergency fire extinguisher", "Crowbar", "Heavy wool blanket", "Strobe flashlight"]
+            : []
+
+        const configuredData: SurvivalGameData = {
+          scenario: data.scenario.trim(),
+          mode,
+          required_count,
+          allow_multiple,
+          options,
+        }
+
+        setGameData(configuredData)
+        setUserInput(mode === 'typing' ? Array(required_count).fill('') : [])
+      } else {
+        const fallback = FALLBACK_SCENARIOS[Math.floor(Math.random() * FALLBACK_SCENARIOS.length)]
+        setGameData(fallback)
+        setUserInput(fallback.mode === 'typing' ? Array(fallback.required_count).fill('') : [])
+      }
+      setTimeLeft(60)
+      setTimerActive(true)
+      setGameState('playing')
+    } catch (err) {
+      console.warn('Backend unavailable, using curated fallback scenario:', err)
+      const fallback = FALLBACK_SCENARIOS[Math.floor(Math.random() * FALLBACK_SCENARIOS.length)]
+      setGameData(fallback)
+      setUserInput(fallback.mode === 'typing' ? Array(fallback.required_count).fill('') : [])
+      setTimeLeft(60)
+      setTimerActive(true)
+      setGameState('playing')
+    }
+  }
+
+  useEffect(() => {
+    fetchScenario()
+  }, [])
+
+  // Handle typing input change
+  const handleTypingChange = (index: number, val: string) => {
+    setUserInput((prev) => {
+      const next = [...prev]
+      next[index] = val
+      return next
+    })
+    if (errorMsg) setErrorMsg(null)
+  }
+
+  // Handle single MCQ option selection (auto-submits on click)
+  const handleSelectSingleOption = (opt: string) => {
+    if (gameState !== 'playing') return
+    setUserInput([opt])
+    submitToJudge([opt])
+  }
+
+  // Handle multiple MCQ toggle selection
+  const handleToggleMultipleOption = (opt: string) => {
+    if (gameState !== 'playing' || !gameData) return
+    setUserInput((prev) => {
+      if (prev.includes(opt)) {
+        return prev.filter((item) => item !== opt)
+      }
+      if (prev.length < gameData.required_count) {
+        return [...prev, opt]
+      }
+      return [...prev.slice(1), opt]
+    })
+    if (errorMsg) setErrorMsg(null)
+  }
+
+  // Manual submit for typing or multiple MCQ
+  const handleManualSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!gameData) return
+
+    if (gameData.mode === 'typing') {
+      const validInputs = userInput.map((i) => i.trim())
+      if (validInputs.some((i) => !i)) {
+        setErrorMsg(`You must fill all ${gameData.required_count} input fields before confronting the hazard.`)
+        return
+      }
+      submitToJudge(validInputs)
+    } else {
+      if (userInput.length !== gameData.required_count) {
+        setErrorMsg(`You must select exactly ${gameData.required_count} options.`)
+        return
+      }
+      submitToJudge(userInput)
+    }
+  }
+
+  // Check form completeness
+  const isFormComplete =
+    gameData?.mode === 'typing'
+      ? userInput.length === gameData.required_count && userInput.every((i) => i.trim() !== '')
+      : userInput.length === (gameData?.required_count || 1)
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col text-white font-sans px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">
       {/* ── Top Header Bar ── */}
-      <header className="w-full flex items-center justify-between pb-4 mb-4 border-b border-red-500/20">
+      <header className="w-full flex items-center justify-between pb-4 mb-3 border-b border-red-500/20">
         <div className="flex items-center gap-3">
           <Link
             to="/"
@@ -152,8 +340,21 @@ export function SurvivalProtocol() {
           </div>
         </div>
 
-        {/* Hazard Level Badge */}
+        {/* Status badges */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {gameData && gameState === 'playing' && (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider font-bold uppercase"
+              style={{
+                background: gameData.mode === 'mcq' ? 'rgba(0, 245, 255, 0.1)' : 'rgba(255, 159, 10, 0.1)',
+                border: `1px solid ${gameData.mode === 'mcq' ? 'rgba(0, 245, 255, 0.3)' : 'rgba(255, 159, 10, 0.3)'}`,
+                color: gameData.mode === 'mcq' ? '#00F5FF' : '#FF9F0A',
+              }}
+            >
+              <span>MODE: {gameData.mode.toUpperCase()}</span>
+            </div>
+          )}
+
           <div
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider font-bold uppercase"
             style={{
@@ -163,24 +364,52 @@ export function SurvivalProtocol() {
             }}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-            <span>BIOHAZARD ACTIVE</span>
-          </div>
-
-          <div
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider"
-            style={{
-              background: 'rgba(255, 159, 10, 0.08)',
-              border: '1px solid rgba(255, 159, 10, 0.25)',
-              color: '#FF9F0A',
-            }}
-          >
-            <span>PROTOCOL: 3-ITEMS</span>
+            <span className="hidden sm:inline">BIOHAZARD ACTIVE</span>
           </div>
         </div>
       </header>
 
+      {/* ── 60-Second Countdown Timer (Active during gameplay) ── */}
+      {gameState === 'playing' && (
+        <div className="w-full flex flex-col items-center justify-center mb-4">
+          <motion.div
+            animate={
+              timeLeft <= 10
+                ? {
+                    scale: [1, 1.09, 1],
+                    borderColor: ['rgba(255, 69, 58, 0.4)', 'rgba(255, 69, 58, 1)', 'rgba(255, 69, 58, 0.4)'],
+                    boxShadow: [
+                      '0 0 25px rgba(255, 69, 58, 0.4)',
+                      '0 0 60px rgba(255, 69, 58, 0.9)',
+                      '0 0 25px rgba(255, 69, 58, 0.4)',
+                    ],
+                  }
+                : {}
+            }
+            transition={
+              timeLeft <= 10
+                ? { duration: 0.5, repeat: Infinity, ease: 'easeInOut' }
+                : {}
+            }
+            className={`px-6 py-2.5 rounded-2xl border flex items-center gap-3 font-mono transition-colors ${
+              timeLeft <= 10
+                ? 'bg-red-950/80 text-red-400 border-red-500'
+                : 'bg-red-950/30 text-red-300 border-red-500/30 shadow-[0_0_25px_rgba(255,69,58,0.2)]'
+            }`}
+          >
+            <span className="text-xs uppercase tracking-widest text-red-400 font-bold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+              TIME REMAINING:
+            </span>
+            <span className="text-3xl sm:text-4xl font-black tracking-tight text-white font-mono drop-shadow-[0_0_15px_rgba(255,69,58,0.8)]">
+              {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
+            </span>
+          </motion.div>
+        </div>
+      )}
+
       {/* ── Main Content ── */}
-      <main className="flex-1 flex flex-col items-center justify-center min-h-0 relative py-2 sm:py-6">
+      <main className="flex-1 flex flex-col items-center justify-center min-h-0 relative py-2 sm:py-4">
         <AnimatePresence mode="wait">
           {/* ═══════════════════════════════════════════════════════════════════
               STATE 1: LOADING SCENARIO
@@ -196,10 +425,10 @@ export function SurvivalProtocol() {
               <LoadingOrb size={92} color="#FF453A" />
               <div className="flex flex-col gap-1.5">
                 <p className="text-xl font-black tracking-wider text-red-400 uppercase">
-                  Synthesizing Hazard Scenario...
+                  Synthesizing Survival Protocol...
                 </p>
                 <p className="text-xs text-white/40 font-mono tracking-widest uppercase">
-                  Formulating catastrophic life-or-death environment
+                  Generating dynamic hazard scenario and protocol rules
                 </p>
               </div>
             </motion.div>
@@ -229,9 +458,9 @@ export function SurvivalProtocol() {
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════
-              STATE 3: PLAYING STATE (SCENARIO & 3 ITEM INPUTS)
+              STATE 3: PLAYING STATE (SCENARIO + DYNAMIC MCQ / TYPING)
           ═══════════════════════════════════════════════════════════════════ */}
-          {gameState === 'playing' && (
+          {gameState === 'playing' && gameData && (
             <motion.div
               key="playing"
               initial={{ opacity: 0, y: 16 }}
@@ -249,117 +478,168 @@ export function SurvivalProtocol() {
                   boxShadow: '0 0 50px rgba(255, 69, 58, 0.15)',
                 }}
               >
-                {/* Warning Hazard Ribbon */}
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-base">☣️</span>
                   <span className="text-[11px] font-mono uppercase tracking-widest text-red-400 font-bold">
-                    SURVIVAL EMERGENCY • LEVEL 5
+                    SURVIVAL EMERGENCY • {gameData.mode.toUpperCase()} PROTOCOL
                   </span>
                   <span className="text-base">☣️</span>
                 </div>
 
-                {/* Scenario Text */}
                 <h2 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white max-w-2xl leading-snug">
-                  &ldquo;{scenario}&rdquo;
+                  &ldquo;{gameData.scenario}&rdquo;
                 </h2>
 
-                <p className="text-xs text-white/40 uppercase font-mono tracking-wider mt-4">
-                  Select exactly 3 everyday items, tools, or concepts. The judge will analyze your survival odds.
-                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-[11px] font-mono">
+                  <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/70">
+                    REQUIRED: {gameData.required_count} {gameData.required_count === 1 ? 'ITEM' : 'ITEMS'}
+                  </span>
+                  {gameData.mode === 'mcq' && (
+                    <span className="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300">
+                      {gameData.allow_multiple ? 'MULTIPLE CHOICE' : 'SINGLE CHOICE (CLICK TO SUBMIT)'}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* Items Form */}
-              <form
-                onSubmit={handleSubmitSurvival}
-                className="w-full flex flex-col gap-4 max-w-2xl"
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
-                  {/* Item 1 */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-mono uppercase tracking-widest text-red-400 font-semibold flex items-center justify-between">
-                      <span>Item 01</span>
-                      <span className="text-white/30 text-[10px]">REQUIRED</span>
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={60}
-                      value={items[0]}
-                      onChange={(e) => handleItemChange(0, e.target.value)}
-                      placeholder="e.g. Crowbar"
-                      className="w-full px-4 py-3 rounded-xl border border-red-500/25 bg-red-950/15 focus:bg-red-950/30 focus:border-red-400 text-sm text-white placeholder-white/20 focus:outline-none transition-all shadow-[inset_0_0_15px_rgba(255,69,58,0.05)]"
-                    />
+              {/* ── MODE 1: MCQ DYNAMIC CARDS ── */}
+              {gameData.mode === 'mcq' && (
+                <div className="w-full max-w-2xl flex flex-col gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 w-full">
+                    {gameData.options.map((option, idx) => {
+                      const isSelected = userInput.includes(option)
+                      return (
+                        <motion.button
+                          key={idx}
+                          type="button"
+                          whileHover={{ scale: 1.015, y: -2 }}
+                          whileTap={{ scale: 0.985 }}
+                          onClick={() => {
+                            if (gameData.allow_multiple) {
+                              handleToggleMultipleOption(option)
+                            } else {
+                              handleSelectSingleOption(option)
+                            }
+                          }}
+                          className={`p-5 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer backdrop-blur-xl ${
+                            isSelected
+                              ? 'border-red-400 bg-red-950/40 shadow-[0_0_25px_rgba(255,69,58,0.3)]'
+                              : 'border-white/10 bg-white/[0.03] hover:border-red-500/40 hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-red-400">
+                              Option {String.fromCharCode(65 + idx)}
+                            </span>
+                            <span
+                              className={`w-4 h-4 rounded-full border flex items-center justify-center text-[10px] font-mono ${
+                                isSelected
+                                  ? 'border-red-400 bg-red-500 text-black font-black'
+                                  : 'border-white/20 bg-transparent'
+                              }`}
+                            >
+                              {isSelected ? '✓' : ''}
+                            </span>
+                          </div>
+                          <p className="text-sm sm:text-base font-semibold text-white/90 leading-snug">
+                            {option}
+                          </p>
+                        </motion.button>
+                      )
+                    })}
                   </div>
 
-                  {/* Item 2 */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-mono uppercase tracking-widest text-orange-400 font-semibold flex items-center justify-between">
-                      <span>Item 02</span>
-                      <span className="text-white/30 text-[10px]">REQUIRED</span>
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={60}
-                      value={items[1]}
-                      onChange={(e) => handleItemChange(1, e.target.value)}
-                      placeholder="e.g. Jar of peanut butter"
-                      className="w-full px-4 py-3 rounded-xl border border-orange-500/25 bg-orange-950/15 focus:bg-orange-950/30 focus:border-orange-400 text-sm text-white placeholder-white/20 focus:outline-none transition-all shadow-[inset_0_0_15px_rgba(255,159,10,0.05)]"
-                    />
-                  </div>
-
-                  {/* Item 3 */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] font-mono uppercase tracking-widest text-yellow-400 font-semibold flex items-center justify-between">
-                      <span>Item 03</span>
-                      <span className="text-white/30 text-[10px]">REQUIRED</span>
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={60}
-                      value={items[2]}
-                      onChange={(e) => handleItemChange(2, e.target.value)}
-                      placeholder="e.g. Laser pointer"
-                      className="w-full px-4 py-3 rounded-xl border border-yellow-500/25 bg-yellow-950/15 focus:bg-yellow-950/30 focus:border-yellow-400 text-sm text-white placeholder-white/20 focus:outline-none transition-all shadow-[inset_0_0_15px_rgba(255,214,10,0.05)]"
-                    />
-                  </div>
+                  {/* Multiple MCQ Submission Button */}
+                  {gameData.allow_multiple && (
+                    <div className="flex flex-col items-center gap-2 mt-2">
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleManualSubmit()}
+                        disabled={!isFormComplete}
+                        className={`w-full sm:w-auto px-10 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          isFormComplete
+                            ? 'text-black bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 hover:from-red-400 hover:to-yellow-400 shadow-[0_0_30px_rgba(255,69,58,0.4)]'
+                            : 'text-white/30 bg-white/5 border border-white/10 cursor-not-allowed'
+                        }`}
+                      >
+                        <span>Submit Choices ({userInput.length}/{gameData.required_count})</span>
+                        <span>⚡</span>
+                      </motion.button>
+                    </div>
+                  )}
                 </div>
+              )}
 
-                {/* Error Banner */}
-                {errorMsg && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300 text-center font-mono"
-                  >
-                    {errorMsg}
-                  </motion.div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-3">
-                  <motion.button
-                    type="submit"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    disabled={!isFormValid}
-                    className={`w-full sm:w-auto px-10 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
-                      isFormValid
-                        ? 'text-black bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 hover:from-red-400 hover:to-yellow-400 shadow-[0_0_30px_rgba(255,69,58,0.4)]'
-                        : 'text-white/30 bg-white/5 border border-white/10 cursor-not-allowed'
+              {/* ── MODE 2: TYPING DYNAMIC INPUTS ── */}
+              {gameData.mode === 'typing' && (
+                <form
+                  onSubmit={handleManualSubmit}
+                  className="w-full flex flex-col gap-4 max-w-2xl"
+                >
+                  <div
+                    className={`grid gap-3 w-full ${
+                      gameData.required_count === 1
+                        ? 'grid-cols-1'
+                        : gameData.required_count === 2
+                        ? 'grid-cols-1 sm:grid-cols-2'
+                        : 'grid-cols-1 sm:grid-cols-3'
                     }`}
                   >
-                    <span>SURVIVE</span>
-                    <span>⚡</span>
-                  </motion.button>
+                    {Array.from({ length: gameData.required_count }).map((_, idx) => (
+                      <div key={idx} className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-mono uppercase tracking-widest text-red-400 font-semibold flex items-center justify-between">
+                          <span>Item 0{idx + 1}</span>
+                          <span className="text-white/30 text-[10px]">REQUIRED</span>
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={60}
+                          value={userInput[idx] || ''}
+                          onChange={(e) => handleTypingChange(idx, e.target.value)}
+                          placeholder={
+                            idx === 0
+                              ? 'e.g. Crowbar'
+                              : idx === 1
+                              ? 'e.g. Jar of peanut butter'
+                              : 'e.g. Laser pointer'
+                          }
+                          className="w-full px-4 py-3 rounded-xl border border-red-500/25 bg-red-950/15 focus:bg-red-950/30 focus:border-red-400 text-sm text-white placeholder-white/20 focus:outline-none transition-all shadow-[inset_0_0_15px_rgba(255,69,58,0.05)]"
+                        />
+                      </div>
+                    ))}
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={fetchScenario}
-                    className="w-full sm:w-auto px-5 py-3.5 rounded-xl text-xs font-mono font-bold uppercase tracking-wider text-white/50 hover:text-white bg-white/[0.02] hover:bg-white/[0.06] border border-white/10 transition-all cursor-pointer"
-                  >
-                    Reroll Scenario ↻
-                  </button>
-                </div>
-              </form>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-3">
+                    <motion.button
+                      type="submit"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      disabled={!isFormComplete}
+                      className={`w-full sm:w-auto px-10 py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        isFormComplete
+                          ? 'text-black bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 hover:from-red-400 hover:to-yellow-400 shadow-[0_0_30px_rgba(255,69,58,0.4)]'
+                          : 'text-white/30 bg-white/5 border border-white/10 cursor-not-allowed'
+                      }`}
+                    >
+                      <span>SURVIVE</span>
+                      <span>⚡</span>
+                    </motion.button>
+                  </div>
+                </form>
+              )}
+
+              {/* Error Banner */}
+              {errorMsg && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-3 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300 text-center font-mono max-w-md w-full"
+                >
+                  {errorMsg}
+                </motion.div>
+              )}
             </motion.div>
           )}
 
@@ -437,12 +717,17 @@ export function SurvivalProtocol() {
               </div>
 
               {/* Equipped Items Summary */}
-              <div className="w-full flex items-center justify-center gap-2 my-3 text-[11px] font-mono text-white/50">
-                <span className="text-white/30">EQUIPPED:</span>
-                <span className="text-white/80">{items[0]}</span> •
-                <span className="text-white/80">{items[1]}</span> •
-                <span className="text-white/80">{items[2]}</span>
-              </div>
+              {userInput.filter(Boolean).length > 0 && (
+                <div className="w-full flex flex-wrap items-center justify-center gap-2 my-3 text-[11px] font-mono text-white/50">
+                  <span className="text-white/30">EQUIPPED:</span>
+                  {userInput.filter(Boolean).map((item, idx) => (
+                    <span key={idx} className="text-white/80 font-medium">
+                      {idx > 0 && <span className="text-white/30 mr-2">•</span>}
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               {/* Verdict Card */}
               <div
