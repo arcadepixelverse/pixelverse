@@ -29,12 +29,12 @@ const GAMES = [
     href: '/games/mind-reader',
   },
   {
-    title: 'The Oracle',
-    description: 'Ask the AI anything. But dare you believe what it reveals?',
-    icon: '🔮',
-    neonClass: 'neon-blue',
-    iconBg: 'rgba(10, 132, 255, 0.12)',
-    href: '/games/oracle',
+    title: 'The Turing Test',
+    description: 'Human or AI? Can you spot the real human in 5 rounds of quirky dilemmas?',
+    icon: '🤖',
+    neonClass: 'neon-cyan',
+    iconBg: 'rgba(0, 245, 255, 0.12)',
+    href: '/games/turing-test',
   },
   {
     title: 'The Vault',
@@ -49,6 +49,7 @@ const GAMES = [
     icon: '🌀',
     neonClass: 'neon-pink',
     iconBg: 'rgba(255, 55, 95, 0.12)',
+    href: '/games/rorschach',
   },
 ]
 

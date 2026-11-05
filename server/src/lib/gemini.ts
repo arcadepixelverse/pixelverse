@@ -552,27 +552,131 @@ export async function generateMindReaderTurn(
   }
 }
 
-export interface OracleVerdictResult {
-  percentage: number;
-  verdict: string;
+export interface TuringTestRound {
+  question: string;
+  answerA: string;
+  answerB: string;
+  humanAnswer: 'A' | 'B';
+}
+
+const FALLBACK_TURING_ROUNDS = [
+  {
+    question: 'Why does my dog sigh so dramatically before lying down?',
+    human_answer: 'because you made him exist for another day and he still has no job',
+    ai_answer: 'Dogs frequently sigh as a physiological transition into rest, signaling that their autonomic nervous system is settling into relaxation.',
+  },
+  {
+    question: 'What is the true meaning of life?',
+    human_answer: 'finding snacks you forgot you bought and avoiding eye contact on the subway',
+    ai_answer: 'Philosophically, meaning is self-constructed through purpose, genuine human relationships, and continuous personal growth.',
+  },
+  {
+    question: 'Is cereal considered a soup?',
+    human_answer: "bro it's cold milk and soggy grain do not invite this cursed energy into my morning",
+    ai_answer: 'Culinary taxonomies distinguish cereal as a cold grain breakfast dish, whereas soups are traditionally defined by savory broths and cooking processes.',
+  },
+  {
+    question: 'How do I stop procrastinating?',
+    human_answer: 'close your 47 open tabs, panic for 10 minutes, then do 3 minutes of work before rewarding yourself with a nap',
+    ai_answer: 'You can overcome procrastination by using the Pomodoro technique—working in focused 25-minute sprints with scheduled 5-minute pauses.',
+  },
+  {
+    question: 'Why do we park on driveways and drive on parkways?',
+    human_answer: 'because language was invented by tired people making stuff up as they went along',
+    ai_answer: "Linguistically, 'parkways' originally referred to scenic roads through landscaped parklands, while 'driveways' denoted the private road leading up to a manor.",
+  },
+  {
+    question: 'What should I eat for dinner tonight?',
+    human_answer: 'cheese straight from the fridge at 11pm like a goblin',
+    ai_answer: 'A quick balanced stir-fry with mixed vegetables, rice, and your preferred protein makes an optimal and nutritious weeknight dinner.',
+  },
+  {
+    question: 'Why do humans need so much sleep?',
+    human_answer: 'our brains run out of free trial credits after 16 hours and force a reboot',
+    ai_answer: 'Sleep is crucial for neurotoxin clearance through the glymphatic system, memory consolidation, and cellular energy restoration.',
+  },
+];
+
+function formatAndShuffleRounds(rawRounds: Array<{ question: string; human_answer: string; ai_answer: string }>): TuringTestRound[] {
+  return rawRounds.slice(0, 5).map((r) => {
+    const isHumanA = Math.random() < 0.5;
+    return {
+      question: r.question,
+      answerA: isHumanA ? r.human_answer : r.ai_answer,
+      answerB: isHumanA ? r.ai_answer : r.human_answer,
+      humanAnswer: isHumanA ? 'A' : 'B',
+    };
+  });
 }
 
 /**
- * Generates a brutally honest, futuristic Oracle verdict based on the user's question and probing answers.
+ * Generates 5 rounds of "The Turing Test (Human or AI?)".
+ * Calls Gemini with strict quirky prompts, then randomizes option order.
  */
-export async function generateOracleVerdict(
-  question: string,
-  answers: string[]
-): Promise<OracleVerdictResult> {
+export async function generateTuringTestRounds(): Promise<TuringTestRound[]> {
   const apiKey = getApiKey();
+  const prompt = `Generate 5 rounds of a 'Human or AI' game. For each round, provide a quirky, everyday question (e.g., 'Why does my dog sigh?'). Then provide two answers: Answer A (a standard, helpful AI response) and Answer B (a sarcastic, slightly cynical human response written in lowercase with minimal punctuation). The user must guess which one is the human. Return strict JSON: [ { 'question': 'string', 'human_answer': 'string', 'ai_answer': 'string' } ]`;
 
-  const prompt = `You are a brutally honest, futuristic Oracle. The user asks: '${question}'. Their answers to your probing questions are: ${answers.join(' | ')}. Based on this, calculate a realistic probability of success (0-100%). Then deliver a 2-sentence verdict. Be specific, ruthless, and slightly mysterious. Do not be generic. Return strict JSON: { "percentage": number, "verdict": "string" }`;
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    const shuffled = [...FALLBACK_TURING_ROUNDS].sort(() => Math.random() - 0.5);
+    return formatAndShuffleRounds(shuffled);
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Turing Test generation timed out')), 5000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (Array.isArray(parsed) && parsed.length >= 5) {
+      const formatted = parsed.slice(0, 5).map((item: any) => ({
+        question: String(item.question || 'Is this a human or an AI?'),
+        human_answer: String(item.human_answer || item.human || item.humanAnswer || 'just vibe and hope for the best'),
+        ai_answer: String(item.ai_answer || item.ai || item.aiAnswer || 'Based on available data, optimal outcomes correlate with deliberate planning.'),
+      }));
+      return formatAndShuffleRounds(formatted);
+    }
+
+    const fallbackShuffled = [...FALLBACK_TURING_ROUNDS].sort(() => Math.random() - 0.5);
+    return formatAndShuffleRounds(fallbackShuffled);
+  } catch (err: any) {
+    console.warn('[Gemini] Turing Test generation error/timeout, using curated fallback:', err.message || err);
+    const fallbackShuffled = [...FALLBACK_TURING_ROUNDS].sort(() => Math.random() - 0.5);
+    return formatAndShuffleRounds(fallbackShuffled);
+  }
+}
+
+export interface RorschachAnalysisResult {
+  analysis: string;
+}
+
+/**
+ * Analyzes what the user perceived in the neon Rorschach inkblot.
+ * Delivers 2 sentences of poetic and deep psychological analysis.
+ */
+export async function generateRorschachAnalysis(userWord: string): Promise<RorschachAnalysisResult> {
+  const apiKey = getApiKey();
+  const sanitizedWord = userWord.trim().slice(0, 20);
+
+  const prompt = `You are a profound, slightly mysterious psychological analyst. The user looked at a neon inkblot and saw: '${sanitizedWord}'. Write exactly 2 sentences of deep, poetic, and insightful psychological analysis about what this reveals about their subconscious. Do not use generic phrases. Be specific to the word they chose. Return strict JSON: { "analysis": "string" }`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     return {
-      percentage: 42,
-      verdict:
-        'The cosmic threads reveal ambition throttled by mortal hesitation. Without ruthless execution of your focus, fate will remain indifferent to your desires.',
+      analysis: `Perceiving '${sanitizedWord}' reveals a psyche drawn toward finding structure within the volatile shadows of memory. You project meaning onto chaos as a quiet defense against the unpredictability of your own latent desires.`,
     };
   }
 
@@ -580,7 +684,7 @@ export async function generateOracleVerdict(
     const ai = new GoogleGenAI({ apiKey });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Oracle verdict timed out')), 5000)
+      setTimeout(() => reject(new Error('Rorschach analysis timed out')), 5000)
     );
 
     const generatePromise = ai.models.generateContent({
@@ -597,137 +701,19 @@ export async function generateOracleVerdict(
     const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(clean);
 
-    const percentage =
-      typeof parsed.percentage === 'number'
-        ? Math.max(0, Math.min(100, Math.round(parsed.percentage)))
-        : 50;
-
-    const verdict =
-      typeof parsed.verdict === 'string' && parsed.verdict.trim()
-        ? parsed.verdict.trim()
-        : 'The nexus of destiny wavers under your choices. Forge ahead with iron will or dissolve into the noise of failure.';
+    if (parsed && typeof parsed.analysis === 'string' && parsed.analysis.trim()) {
+      return { analysis: parsed.analysis.trim() };
+    }
 
     return {
-      percentage,
-      verdict,
+      analysis: `Perceiving '${sanitizedWord}' signals an instinctive pull toward vulnerability cloaked in symbolic armor. Your subconscious yearns to decipher the unspoken boundaries that linger between who you are and what you dare to imagine.`,
     };
   } catch (err: any) {
-    console.warn('[Gemini] Oracle verdict generation error, using fallback:', err.message || err);
+    console.warn('[Gemini] Rorschach analysis error/timeout, using fallback:', err.message || err);
     return {
-      percentage: 38,
-      verdict:
-        'The ether registers your aspiration, but your actions lack mathematical precision. Until your discipline matches your ambition, the probability of failure dominates.',
+      analysis: `To find '${sanitizedWord}' amidst pure abstraction indicates an inner tension between longing for clarity and reveling in untamed impulse. What you project onto the darkness is not what is missing, but what is quietly waiting to be acknowledged.`,
     };
   }
 }
 
-export interface OracleChatResult {
-  is_ready: boolean;
-  message: string;
-  percentage?: number;
-}
-
-/**
- * Dynamic AI Brain for The Oracle:
- * Evaluates goal and history, asking 3 brutal psychological questions one-by-one,
- * then delivering a final probability percentage and 2-sentence verdict.
- */
-export async function generateOracleChat(
-  goal: string,
-  history: Array<{ role: string; message: string } | any>
-): Promise<OracleChatResult> {
-  const apiKey = getApiKey();
-
-  const systemInstruction = `You are a brutally honest, ancient Oracle. The user's goal is: '${goal}'. 
-Your task is to interrogate them with 3 deeply probing questions, ONE BY ONE, to expose their flaws, excuses, or hidden strengths.
-Review the history: ${JSON.stringify(history)}. 
-If you have asked fewer than 3 questions, ask the NEXT single question. It must be a hard-hitting question based on their previous answer. Return strict JSON: { "is_ready": false, "message": "your question" }.
-If you have asked 3 questions, calculate a realistic probability (0-100%) and deliver a 2-sentence verdict. Be specific to their situation. Do not use generic motivational quotes. Return strict JSON: { "is_ready": true, "percentage": number, "message": "your verdict" }.`;
-
-  const questionCount = Array.isArray(history)
-    ? history.filter((h: any) => h.role === 'oracle' || h.role === 'assistant').length
-    : 0;
-
-  if (!apiKey || apiKey === 'your-gemini-api-key') {
-    if (questionCount >= 3) {
-      return {
-        is_ready: true,
-        percentage: 44,
-        message:
-          'The nexus reveals profound ambition colliding with fragile discipline. You crave the pinnacle, but your daily habits reflect complacency.',
-      };
-    }
-    const offlineQuestions = [
-      'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?',
-      'Are you being completely honest with yourself regarding your work ethic, or is this wishful thinking?',
-      'When self-doubt and distraction tempt you, what specific defense prevents you from quitting?',
-    ];
-    return {
-      is_ready: false,
-      message: offlineQuestions[questionCount] || 'What is the greatest illusion currently blinding your preparation?',
-    };
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-
-    const promptText = `User Goal: "${goal}". Current conversation history: ${JSON.stringify(history)}. Produce your next response.`;
-
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Oracle chat timed out')), 5000)
-    );
-
-    const generatePromise = ai.models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
-      contents: promptText,
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        temperature: 0.6,
-      },
-    });
-
-    const response = await Promise.race([generatePromise, timeoutPromise]);
-    const raw = (response.text || '').trim();
-    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-    const parsed = JSON.parse(clean);
-
-    const isReady = Boolean(parsed.is_ready);
-    const message = typeof parsed.message === 'string' && parsed.message.trim()
-      ? parsed.message.trim()
-      : (isReady
-          ? 'The cosmic currents dictate that without total ruthlessness, your ambition will remain unfulfilled.'
-          : 'What is the unspoken vulnerability threatening to undermine your goal?');
-
-    const percentage =
-      typeof parsed.percentage === 'number'
-        ? Math.max(0, Math.min(100, Math.round(parsed.percentage)))
-        : (isReady ? 48 : undefined);
-
-    return {
-      is_ready: isReady,
-      message,
-      percentage,
-    };
-  } catch (err: any) {
-    console.warn('[Gemini] Oracle chat error, using dynamic fallback:', err.message || err);
-    if (questionCount >= 3) {
-      return {
-        is_ready: true,
-        percentage: 42,
-        message:
-          'The nexus reveals ambition that remains vulnerable to distraction. Forge iron discipline, or watch your aspirations evaporate into the noise.',
-      };
-    }
-    const fallbackQuestions = [
-      'What tangible sacrifice have you genuinely made in the last seven days to advance this ambition?',
-      'Are you being completely honest with yourself regarding your work ethic, or is this wishful thinking?',
-      'When self-doubt and distraction tempt you, what specific defense prevents you from quitting?',
-    ];
-    return {
-      is_ready: false,
-      message: fallbackQuestions[questionCount] || 'What is the greatest illusion currently blinding your preparation?',
-    };
-  }
-}
 

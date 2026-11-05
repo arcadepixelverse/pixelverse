@@ -5,8 +5,8 @@ import {
   generateJailbreakRole,
   generateJailbreakTurn,
   generateHigherLowerQuestions,
-  generateOracleVerdict,
-  generateOracleChat,
+  generateTuringTestRounds,
+  generateRorschachAnalysis,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
@@ -608,79 +608,60 @@ gamesRouter.post(
 );
 
 /**
- * ── 7. The Oracle: Verdict ───────────────────────────────────────────────────
- * POST /api/games/oracle/verdict
+ * ── 7. The Turing Test: Generate 5 Rounds ────────────────────────────────────
+ * POST /api/games/turing-test/generate
  * Protected by quotaGate.
- * Accepts { question, answers: string[] }.
- * Queries Gemini for probability percentage and a 2-sentence ruthless verdict.
+ * Generates 5 quirky question rounds with human and AI answers in randomized order.
  */
 gamesRouter.post(
-  ['/oracle/verdict', '/api/games/oracle/verdict'],
+  ['/turing-test/generate', '/api/games/turing-test/generate'],
   quotaGate,
-  async (req: Request, res: Response) => {
+  async (_req: Request, res: Response) => {
     try {
-      const { question, answers } = req.body;
-
-      if (!question || typeof question !== 'string' || !question.trim()) {
-        return res.status(400).json({
-          error: 'INVALID_REQUEST',
-          message: 'question is required.',
-        });
-      }
-
-      const answersArr = Array.isArray(answers) ? answers.map(String) : [];
-
-      const result = await generateOracleVerdict(question.trim(), answersArr);
-
-      return res.json({
-        percentage: result.percentage,
-        verdict: result.verdict,
-      });
+      const rounds = await generateTuringTestRounds();
+      return res.json(rounds);
     } catch (err: any) {
-      console.error('[oracle/verdict] Error:', err);
+      console.error('[turing-test/generate] Error:', err);
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'An error occurred while consulting the Oracle.',
+        message: err.message || 'Failed to generate Turing Test rounds.',
       });
     }
   }
 );
 
 /**
- * ── 8. The Oracle: Dynamic Probing Chat ──────────────────────────────────────
- * POST /api/games/oracle/chat
+ * ── 8. The Rorschach: Analyze Subconscious ───────────────────────────────────
+ * POST /api/games/rorschach/analyze
  * Protected by quotaGate.
- * Accepts { goal, history }.
- * Evaluates goal and conversational history to ask 3 dynamic probing questions,
- * then yields is_ready: true with the final percentage and 2-sentence verdict.
+ * Accepts { userWord } (a single word or short phrase, max 20 chars).
+ * Returns 2 sentences of poetic psychological interpretation.
  */
 gamesRouter.post(
-  ['/oracle/chat', '/api/games/oracle/chat'],
+  ['/rorschach/analyze', '/api/games/rorschach/analyze'],
   quotaGate,
   async (req: Request, res: Response) => {
     try {
-      const { goal, history } = req.body;
+      const { userWord } = req.body;
 
-      if (!goal || typeof goal !== 'string' || !goal.trim()) {
+      if (!userWord || typeof userWord !== 'string' || !userWord.trim()) {
         return res.status(400).json({
           error: 'INVALID_REQUEST',
-          message: 'goal is required.',
+          message: 'userWord is required.',
         });
       }
 
-      const historyArr = Array.isArray(history) ? history : [];
-      const result = await generateOracleChat(goal.trim(), historyArr);
+      const trimmed = userWord.trim().slice(0, 20);
+      const result = await generateRorschachAnalysis(trimmed);
 
       return res.json({
-        is_ready: result.is_ready,
-        message: result.message,
-        percentage: result.percentage,
+        analysis: result.analysis,
       });
     } catch (err: any) {
-      console.error('[oracle/chat] Error:', err);
+      console.error('[rorschach/analyze] Error:', err);
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'An error occurred during Oracle consultation.',
+        message: err.message || 'Failed to analyze Rorschach perception.',
       });
     }
   }
