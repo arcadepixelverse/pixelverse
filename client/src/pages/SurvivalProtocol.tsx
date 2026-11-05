@@ -9,6 +9,7 @@ export interface SurvivalGameData {
   required_count: number
   allow_multiple: boolean
   options: string[]
+  clues: string[]
 }
 
 export interface SurvivalResult {
@@ -28,6 +29,7 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
       "A high-powered pocket laser pointer",
       "A bottle of industrial bleach",
     ],
+    clues: ["a sticky puddle of Sprite", "a heavy plastic ball-pit sphere", "a loose ceiling air duct grill"],
   },
   {
     scenario: "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
@@ -35,6 +37,7 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
     required_count: 3,
     allow_multiple: false,
     options: [],
+    clues: ["an unbuilt Billy bookcase flatpack", "an Allen wrench", "a 50-pack of tealight candles"],
   },
   {
     scenario: "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
@@ -47,6 +50,7 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
       "A heavy woolen winter coat",
       "A bluetooth speaker playing hawk screeches",
     ],
+    clues: ["an emergency luggage strap", "a half-empty seltzer can", "a conductive overhead grab bar"],
   },
   {
     scenario: "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
@@ -54,6 +58,7 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
     required_count: 2,
     allow_multiple: false,
     options: [],
+    clues: ["a stainless steel milk steaming pitcher", "a puddle of dark roast espresso", "an exposed maintenance phone wire"],
   },
   {
     scenario: "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
@@ -66,6 +71,7 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
       "An emergency fire axe in a glass box",
       "A pair of heavy-duty insulated gloves",
     ],
+    clues: ["a motorized scanner barcode wand", "a heavy wooden pallet edge", "a high-tension packing tape dispenser"],
   },
   {
     scenario: "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
@@ -73,6 +79,7 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
     required_count: 1,
     allow_multiple: false,
     options: [],
+    clues: ["a pallet of industrial frozen pizzas", "a heavy-duty forklift tire wedge", "an extension cord looped around a steel pillar"],
   },
 ]
 
@@ -92,13 +99,14 @@ export function SurvivalProtocol() {
   const gameDataRef = useRef<SurvivalGameData | null>(gameData)
   gameDataRef.current = gameData
 
-  // Submit items to the AI judge
+  // Submit items to the AI judge (including environmental clues)
   const submitToJudge = async (itemsToSubmit: string[]) => {
     setTimerActive(false)
     setGameState('judging')
     setErrorMsg(null)
 
     const currentScenario = gameDataRef.current?.scenario || 'Extreme emergency scenario'
+    const currentClues = gameDataRef.current?.clues || []
 
     try {
       const res = await fetch('http://localhost:10000/api/games/survival/judge', {
@@ -106,6 +114,7 @@ export function SurvivalProtocol() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scenario: currentScenario,
+          clues: currentClues,
           userInput: itemsToSubmit,
         }),
       })
@@ -218,6 +227,10 @@ export function SurvivalProtocol() {
             : mode === 'mcq'
             ? ["Emergency fire extinguisher", "Crowbar", "Heavy wool blanket", "Strobe flashlight"]
             : []
+        const clues =
+          Array.isArray(data.clues) && data.clues.length >= 2
+            ? data.clues.slice(0, 3)
+            : ["a rusty pipe", "a puddle of oil", "a loose ceiling bracket"]
 
         const configuredData: SurvivalGameData = {
           scenario: data.scenario.trim(),
@@ -225,6 +238,7 @@ export function SurvivalProtocol() {
           required_count,
           allow_multiple,
           options,
+          clues,
         }
 
         setGameData(configuredData)
@@ -331,11 +345,11 @@ export function SurvivalProtocol() {
                 Survival Protocol
               </h1>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-red-500/15 border border-red-500/30 text-red-300">
-                Concept Killer
+                MacGyver Logic
               </span>
             </div>
             <p className="text-[11px] text-white/40 tracking-wide">
-              Stateless survival simulation. Outlogic the ruthless AI judge.
+              Cached survival engine. Use your environment to outwit the judge.
             </p>
           </div>
         </div>
@@ -428,7 +442,7 @@ export function SurvivalProtocol() {
                   Synthesizing Survival Protocol...
                 </p>
                 <p className="text-xs text-white/40 font-mono tracking-widest uppercase">
-                  Generating dynamic hazard scenario and protocol rules
+                  Fetching scenario and scouting environmental clues
                 </p>
               </div>
             </motion.div>
@@ -448,17 +462,17 @@ export function SurvivalProtocol() {
               <LoadingOrb size={92} color="#FF9F0A" />
               <div className="flex flex-col gap-1.5">
                 <p className="text-xl font-black tracking-wider text-orange-400 uppercase">
-                  The AI Judge is Deliberating...
+                  The MacGyver Judge is Deliberating...
                 </p>
                 <p className="text-xs text-white/40 font-mono tracking-widest uppercase">
-                  Calculating physical causality, biological survival odds, and comedy metrics
+                  Analyzing environmental integration, creative logic, and causality
                 </p>
               </div>
             </motion.div>
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════
-              STATE 3: PLAYING STATE (SCENARIO + DYNAMIC MCQ / TYPING)
+              STATE 3: PLAYING STATE (SCENARIO + CLUES + DYNAMIC MCQ / TYPING)
           ═══════════════════════════════════════════════════════════════════ */}
           {gameState === 'playing' && gameData && (
             <motion.div
@@ -469,7 +483,7 @@ export function SurvivalProtocol() {
               transition={{ duration: 0.3 }}
               className="w-full flex flex-col items-center gap-6"
             >
-              {/* Glowing Hazard Card */}
+              {/* Glowing Hazard Card with Environmental Clues */}
               <div
                 className="w-full p-6 sm:p-8 rounded-3xl border backdrop-blur-2xl flex flex-col items-center text-center relative overflow-hidden shadow-2xl"
                 style={{
@@ -489,6 +503,35 @@ export function SurvivalProtocol() {
                 <h2 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight text-white max-w-2xl leading-snug">
                   &ldquo;{gameData.scenario}&rdquo;
                 </h2>
+
+                {/* Environmental Clues Banner List */}
+                {gameData.clues && gameData.clues.length > 0 && (
+                  <div className="w-full mt-5 pt-4 border-t border-red-500/20 flex flex-col items-center">
+                    <div className="flex items-center gap-1.5 mb-2.5">
+                      <span className="text-amber-400 text-xs">⚠️</span>
+                      <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-300 drop-shadow-[0_0_10px_rgba(255,159,10,0.6)]">
+                        ENVIRONMENTAL CLUES (USE THESE!)
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-2 max-w-xl">
+                      {gameData.clues.map((clue, idx) => (
+                        <div
+                          key={idx}
+                          className="px-3 py-1 rounded-full text-xs font-mono font-medium text-amber-200 border flex items-center gap-1.5 transition-all"
+                          style={{
+                            background: 'rgba(255, 159, 10, 0.1)',
+                            borderColor: 'rgba(255, 159, 10, 0.35)',
+                            boxShadow: '0 0 15px rgba(255, 159, 10, 0.15)',
+                          }}
+                        >
+                          <span className="text-amber-400 font-bold">›</span>
+                          <span>{clue}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-center gap-2 mt-4 text-[11px] font-mono">
                   <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-white/70">
@@ -729,19 +772,48 @@ export function SurvivalProtocol() {
                 </div>
               )}
 
+              {/* Section Header above verdict */}
+              <div className="w-full flex items-center justify-center gap-2 mb-3 mt-2">
+                {result.survived ? (
+                  <>
+                    <span className="text-base sm:text-lg">🛡️</span>
+                    <h3 className="text-xs sm:text-sm font-black font-mono uppercase tracking-widest text-green-400 drop-shadow-[0_0_12px_rgba(48,209,88,0.7)]">
+                      SURVIVAL DEBRIEF
+                    </h3>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-base sm:text-lg">💀</span>
+                    <h3 className="text-xs sm:text-sm font-black font-mono uppercase tracking-widest text-red-500 drop-shadow-[0_0_14px_rgba(255,69,58,0.9)]">
+                      AUTOPSY REPORT
+                    </h3>
+                    <span className="text-base sm:text-lg">💀</span>
+                  </>
+                )}
+              </div>
+
               {/* Verdict Card */}
               <div
-                className="w-full p-6 rounded-2xl mb-8 border flex items-center justify-center text-center backdrop-blur-xl"
+                className={`w-full p-6 sm:p-7 rounded-2xl mb-8 border flex flex-col items-center text-center backdrop-blur-2xl relative overflow-hidden transition-all ${
+                  !result.survived
+                    ? 'shadow-[0_0_35px_rgba(255,69,58,0.25)] border-red-500/60'
+                    : 'shadow-[0_0_30px_rgba(48,209,88,0.15)] border-green-500/35'
+                }`}
                 style={{
                   background: result.survived
-                    ? 'rgba(48, 209, 88, 0.08)'
-                    : 'rgba(255, 69, 58, 0.08)',
-                  borderColor: result.survived
-                    ? 'rgba(48, 209, 88, 0.25)'
-                    : 'rgba(255, 69, 58, 0.25)',
+                    ? 'linear-gradient(180deg, rgba(48, 209, 88, 0.1) 0%, rgba(10, 25, 18, 0.85) 100%)'
+                    : 'linear-gradient(180deg, rgba(255, 69, 58, 0.18) 0%, rgba(30, 10, 14, 0.9) 100%)',
                 }}
               >
-                <p className="text-sm sm:text-base text-white/90 leading-relaxed font-sans font-medium">
+                {!result.survived && (
+                  <div className="flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-red-500/20 border border-red-500/40 text-[10px] font-mono font-bold text-red-300 uppercase tracking-widest">
+                    <span>💀</span>
+                    <span>LOGICAL CAUSE OF DEATH</span>
+                  </div>
+                )}
+                <p className={`text-sm sm:text-base leading-relaxed font-sans font-medium ${
+                  !result.survived ? 'text-red-100' : 'text-white/90'
+                }`}>
                   {result.verdict}
                 </p>
               </div>

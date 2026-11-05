@@ -61,6 +61,8 @@ export function HigherLower() {
   const [selectedCard, setSelectedCard] = useState<'A' | 'B' | null>(null)
   const [cardStatus, setCardStatus] = useState<'correct' | 'wrong' | null>(null)
   const [explanation, setExplanation] = useState<string>('')
+  const [timeLeft, setTimeLeft] = useState<number>(10)
+  const [isTimeExpired, setIsTimeExpired] = useState<boolean>(false)
 
   // Fetch 10 questions from the backend API with a 4-second safety threshold
   const fetchQuestions = useCallback(async () => {
@@ -71,6 +73,8 @@ export function HigherLower() {
     setScore(0)
     setCurrentIndex(0)
     setExplanation('')
+    setTimeLeft(10)
+    setIsTimeExpired(false)
 
     let hasHandled = false
 
@@ -81,6 +85,8 @@ export function HigherLower() {
         hasHandled = true
         setQuestions([...HARDCODED_5_FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5))
         setGameState('playing')
+        setTimeLeft(10)
+        setIsTimeExpired(false)
       }
     }, 4000)
 
@@ -113,6 +119,8 @@ export function HigherLower() {
         // Immediately transition once ready
         setQuestions(normalized)
         setGameState('playing')
+        setTimeLeft(10)
+        setIsTimeExpired(false)
         return
       }
     } catch (err) {
@@ -122,6 +130,8 @@ export function HigherLower() {
         console.warn('Backend unavailable, deploying fallback deck:', err)
         setQuestions([...HARDCODED_5_FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5))
         setGameState('playing')
+        setTimeLeft(10)
+        setIsTimeExpired(false)
       }
     }
   }, [])
@@ -129,6 +139,26 @@ export function HigherLower() {
   useEffect(() => {
     fetchQuestions()
   }, [fetchQuestions])
+
+  // 10-second countdown timer per question
+  useEffect(() => {
+    if (gameState !== 'playing' || selectedCard !== null) return
+
+    if (timeLeft <= 0) {
+      setIsTimeExpired(true)
+      setCardStatus('wrong')
+      setFeedback('Time Expired!')
+      setExplanation('TIME EXPIRED. You hesitated and lost.')
+      setGameState('gameover')
+      return
+    }
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => prev - 1)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [gameState, selectedCard, timeLeft])
 
   const handleCardClick = (choice: 'A' | 'B') => {
     if (gameState !== 'playing' || selectedCard !== null) return
@@ -154,6 +184,8 @@ export function HigherLower() {
           setSelectedCard(null)
           setCardStatus(null)
           setFeedback('')
+          setTimeLeft(10)
+          setIsTimeExpired(false)
         } else {
           // Cleared all 10 questions!
           setExplanation(currentQ.explanation || 'Perfect streak! You mastered all challenges.')
@@ -189,17 +221,34 @@ export function HigherLower() {
           <span>Arcade</span>
         </Link>
 
-        {/* Live Score Counter */}
-        <div
-          className="flex items-center gap-3 px-4 py-2 rounded-xl backdrop-blur-md"
-          style={{
-            background: 'rgba(255, 255, 255, 0.04)',
-            border: '1px solid rgba(48, 209, 88, 0.3)',
-            boxShadow: '0 0 15px rgba(48, 209, 88, 0.15)',
-          }}
-        >
-          <span className="text-xs uppercase tracking-widest text-white/50 font-semibold">Score</span>
-          <span className="text-xl font-black text-green-400 tracking-tight font-mono">{score}</span>
+        {/* Prominent Glowing Timer Badge & Live Score Counter */}
+        <div className="flex items-center gap-3">
+          {gameState === 'playing' && (
+            <motion.div
+              animate={timeLeft < 3 ? { scale: [1, 1.15, 1] } : {}}
+              transition={timeLeft < 3 ? { repeat: Infinity, duration: 0.4 } : {}}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl backdrop-blur-md border font-mono tracking-tight transition-all ${
+                timeLeft < 3
+                  ? 'bg-red-500/25 border-red-500/80 text-red-300 shadow-[0_0_22px_rgba(255,69,58,0.7)] animate-pulse'
+                  : 'bg-red-500/10 border-red-500/35 text-red-400 shadow-[0_0_12px_rgba(255,69,58,0.2)]'
+              }`}
+            >
+              <span className="text-sm">⏱</span>
+              <span className="text-lg font-black">{timeLeft}s</span>
+            </motion.div>
+          )}
+
+          <div
+            className="flex items-center gap-3 px-4 py-2 rounded-xl backdrop-blur-md"
+            style={{
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(48, 209, 88, 0.3)',
+              boxShadow: '0 0 15px rgba(48, 209, 88, 0.15)',
+            }}
+          >
+            <span className="text-xs uppercase tracking-widest text-white/50 font-semibold">Score</span>
+            <span className="text-xl font-black text-green-400 tracking-tight font-mono">{score}</span>
+          </div>
         </div>
       </header>
 
@@ -442,15 +491,21 @@ export function HigherLower() {
           >
             {/* Badge */}
             <div className="text-4xl mb-3">
-              {score >= 8 ? '🏆' : score >= 5 ? '⚡' : '💀'}
+              {isTimeExpired ? '⏰' : score >= 8 ? '🏆' : score >= 5 ? '⚡' : '💀'}
             </div>
 
             <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-2 text-white">
-              {score === questions.length ? 'FLAWLESS VICTORY' : 'GAME OVER'}
+              {isTimeExpired
+                ? 'TIME EXPIRED'
+                : score === questions.length
+                ? 'FLAWLESS VICTORY'
+                : 'GAME OVER'}
             </h2>
 
-            <p className="text-sm text-white/50 mb-6">
-              {score === questions.length
+            <p className={`text-sm mb-6 ${isTimeExpired ? 'text-red-400 font-bold font-mono tracking-wide' : 'text-white/50'}`}>
+              {isTimeExpired
+                ? 'TIME EXPIRED. You hesitated and lost.'
+                : score === questions.length
                 ? 'You conquered every single comparison!'
                 : 'The AI challenged your intuition.'}
             </p>

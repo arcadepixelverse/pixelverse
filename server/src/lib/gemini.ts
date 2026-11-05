@@ -664,7 +664,7 @@ const FALLBACK_TURING_ROUNDS_BY_DIFFICULTY: Record<
   serious: FALLBACK_TURING_ROUNDS_SERIOUS,
 };
 
-function formatAndShuffleRounds(rawRounds: Array<{ question: string; human_answer: string; ai_answer: string }>): TuringTestRound[] {
+export function formatAndShuffleRounds(rawRounds: Array<{ question: string; human_answer: string; ai_answer: string }>): TuringTestRound[] {
   return rawRounds.slice(0, 5).map((r) => {
     const isHumanA = Math.random() < 0.5;
     return {
@@ -676,17 +676,90 @@ function formatAndShuffleRounds(rawRounds: Array<{ question: string; human_answe
   });
 }
 
-function getTuringPrompt(difficulty: TuringDifficulty): string {
+function getTuringPrompt(difficulty: TuringDifficulty, count: number = 5): string {
   let modeInstruction = '';
   if (difficulty === 'fun') {
-    modeInstruction = `Generate 5 quirky, absurd, everyday questions. The 'human_answer' must be a sarcastic, slightly cynical human response written in lowercase with minimal punctuation (like a Reddit comment). The 'ai_answer' must be overly formal, helpful, and robotic.`;
+    modeInstruction = `Generate ${count} quirky, absurd, everyday questions. The 'human_answer' must be a sarcastic, slightly cynical human response written in lowercase with minimal punctuation (like a Reddit comment). The 'ai_answer' must be overly formal, helpful, and robotic.`;
   } else if (difficulty === 'serious') {
-    modeInstruction = `Generate 5 deep, philosophical, or complex ethical questions. The 'human_answer' must be nuanced, emotional, and slightly flawed. The 'ai_answer' must be highly structured, polite, and perfectly balanced. Make it extremely difficult to tell which is human.`;
+    modeInstruction = `Generate ${count} deep, philosophical, or complex ethical questions. The 'human_answer' must be nuanced, emotional, and slightly flawed. The 'ai_answer' must be highly structured, polite, and perfectly balanced. Make it extremely difficult to tell which is human.`;
   } else {
-    modeInstruction = `Generate 5 everyday scenario questions. The 'human_answer' should be casual, normal human texting. The 'ai_answer' should be a standard, slightly verbose AI response.`;
+    modeInstruction = `Generate ${count} everyday scenario questions. The 'human_answer' should be casual, normal human texting. The 'ai_answer' should be a standard, slightly verbose AI response.`;
   }
 
   return `${modeInstruction} Return strict JSON: [ { 'question': 'string', 'human_answer': 'string', 'ai_answer': 'string' } ]`;
+}
+
+/**
+ * Generates a batch of raw Turing Test question pairs (question, human_answer, ai_answer)
+ * without pre-shuffling option order (for database storage in turing_scenarios).
+ */
+export async function generateTuringRawBatch(
+  difficulty: TuringDifficulty = 'normal',
+  count: number = 15
+): Promise<Array<{ question: string; human_answer: string; ai_answer: string }>> {
+  const apiKey = getApiKey();
+  const prompt = getTuringPrompt(difficulty, count);
+  const fallbacks = FALLBACK_TURING_ROUNDS_BY_DIFFICULTY[difficulty] || FALLBACK_TURING_ROUNDS_NORMAL;
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    // Generate repeated/curated list of length `count`
+    const list: Array<{ question: string; human_answer: string; ai_answer: string }> = [];
+    while (list.length < count) {
+      for (const item of fallbacks) {
+        if (list.length >= count) break;
+        list.push({ ...item });
+      }
+    }
+    return list;
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Turing Test batch generation timed out')), 9000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((item: any) => ({
+        question: String(item.question || 'Is this a human or an AI?'),
+        human_answer: String(item.human_answer || item.human || item.humanAnswer || 'just vibe and hope for the best'),
+        ai_answer: String(item.ai_answer || item.ai || item.aiAnswer || 'Based on available data, optimal outcomes correlate with deliberate planning.'),
+      }));
+    }
+
+    const list: Array<{ question: string; human_answer: string; ai_answer: string }> = [];
+    while (list.length < count) {
+      for (const item of fallbacks) {
+        if (list.length >= count) break;
+        list.push({ ...item });
+      }
+    }
+    return list;
+  } catch (err: any) {
+    console.warn(`[Gemini] Turing Test batch (${difficulty}) generation error/timeout:`, err.message || err);
+    const list: Array<{ question: string; human_answer: string; ai_answer: string }> = [];
+    while (list.length < count) {
+      for (const item of fallbacks) {
+        if (list.length >= count) break;
+        list.push({ ...item });
+      }
+    }
+    return list;
+  }
 }
 
 /**
@@ -695,7 +768,7 @@ function getTuringPrompt(difficulty: TuringDifficulty): string {
  */
 export async function generateTuringTestRounds(difficulty: TuringDifficulty = 'normal'): Promise<TuringTestRound[]> {
   const apiKey = getApiKey();
-  const prompt = getTuringPrompt(difficulty);
+  const prompt = getTuringPrompt(difficulty, 5);
   const fallbacks = FALLBACK_TURING_ROUNDS_BY_DIFFICULTY[difficulty] || FALLBACK_TURING_ROUNDS_NORMAL;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
@@ -747,6 +820,7 @@ export interface SurvivalScenarioResult {
   required_count: number;
   allow_multiple: boolean;
   options: string[];
+  clues: string[];
 }
 
 export interface SurvivalJudgeResult {
@@ -761,6 +835,7 @@ const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
     required_count: 2,
     allow_multiple: true,
     options: ["A half-eaten Happy Meal cheeseburger", "A squeaky clown horn", "A high-powered pocket laser pointer", "A bottle of industrial bleach"],
+    clues: ["a sticky puddle of Sprite", "a heavy plastic ball-pit sphere", "a loose ceiling air duct grill"],
   },
   {
     scenario: "You are locked overnight in an IKEA display warehouse while an escaped swarm of robotic vacuum cleaners aggressively circles your perimeter.",
@@ -768,6 +843,7 @@ const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
     required_count: 3,
     allow_multiple: false,
     options: [],
+    clues: ["an unbuilt Billy bookcase flatpack", "an Allen wrench", "a 50-pack of tealight candles"],
   },
   {
     scenario: "You accidentally boarded a high-speed express train car that has been completely commandeered by 14 territorial Canadian geese.",
@@ -775,6 +851,7 @@ const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
     required_count: 1,
     allow_multiple: false,
     options: ["An oversized loaf of French bread", "An unopened umbrella", "A heavy woolen winter coat", "A bluetooth speaker playing hawk screeches"],
+    clues: ["an emergency luggage strap", "a half-empty seltzer can", "a conductive overhead grab bar"],
   },
   {
     scenario: "You are stuck inside a malfunctioning glass skyscraper elevator between floors 49 and 50 with a violently short-circuiting robotic barista.",
@@ -782,6 +859,7 @@ const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
     required_count: 2,
     allow_multiple: false,
     options: [],
+    clues: ["a stainless steel milk steaming pitcher", "a puddle of dark roast espresso", "an exposed maintenance phone wire"],
   },
   {
     scenario: "You are stranded on a rogue conveyor belt inside an automated fulfillment center moving steadily toward an industrial cardboard shredder.",
@@ -789,6 +867,7 @@ const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
     required_count: 1,
     allow_multiple: false,
     options: ["A heavy metal crowbar", "A roll of industrial bubble wrap", "An emergency fire axe in a glass box", "A pair of heavy-duty insulated gloves"],
+    clues: ["a motorized scanner barcode wand", "a heavy wooden pallet edge", "a high-tension packing tape dispenser"],
   },
   {
     scenario: "You are locked inside a Costco cold storage walk-in freezer with a hyperactive animatronic singing snowman that won't stop blaring polka music.",
@@ -796,26 +875,26 @@ const FALLBACK_SURVIVAL_DATA: SurvivalScenarioResult[] = [
     required_count: 1,
     allow_multiple: false,
     options: [],
+    clues: ["a pallet of industrial frozen pizzas", "a heavy-duty forklift tire wedge", "an extension cord looped around a steel pillar"],
   },
 ];
 
 /**
- * Generates a bizarre, dangerous, and specific survival scenario with dynamic mode (mcq or typing).
+ * Generates 10 bizarre survival scenarios in a batch with environmental clues.
  */
-export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult> {
+export async function generateSurvivalScenariosBatch(count: number = 10): Promise<SurvivalScenarioResult[]> {
   const apiKey = getApiKey();
-  const prompt = `Generate a bizarre survival scenario. Randomly choose 'mcq' or 'typing' mode. If 'mcq', provide 4 options and decide if it's single or multiple choice. If 'typing', set options to []. Randomly pick a required_count between 1 and 3. Return strict JSON: { "scenario": "string", "mode": "mcq" | "typing", "required_count": 1 | 2 | 3, "allow_multiple": boolean, "options": ["string", "string", "string", "string"] }`;
+  const prompt = `Generate ${count} bizarre survival scenarios. For each, randomly choose 'mcq' or 'typing' mode. If 'mcq', provide 4 options and decide if it's single or multiple choice. If 'typing', set options to []. Randomly pick a required_count between 1 and 3. Also generate 3 'clues' (environmental items the user can see, e.g., 'a rusty pipe', 'a puddle of oil') to help them survive. Return strict JSON: [ { "scenario": "string", "mode": "mcq" | "typing", "required_count": 1 | 2 | 3, "allow_multiple": boolean, "options": ["string", "string", "string", "string"], "clues": ["string", "string", "string"] } ]`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
-    const randomScenario = FALLBACK_SURVIVAL_DATA[Math.floor(Math.random() * FALLBACK_SURVIVAL_DATA.length)];
-    return { ...randomScenario };
+    return [...FALLBACK_SURVIVAL_DATA];
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Survival scenario generation timed out')), 5000)
+      setTimeout(() => reject(new Error('Batch survival scenario generation timed out')), 9000)
     );
 
     const generatePromise = ai.models.generateContent({
@@ -823,7 +902,7 @@ export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.85,
+        temperature: 0.9,
       },
     });
 
@@ -832,55 +911,74 @@ export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult
     const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(clean);
 
-    if (parsed && typeof parsed.scenario === 'string' && parsed.scenario.trim()) {
-      const mode: 'mcq' | 'typing' = parsed.mode === 'mcq' ? 'mcq' : 'typing';
-      let required_count = Number(parsed.required_count);
-      if (![1, 2, 3].includes(required_count)) {
-        required_count = mode === 'mcq' ? (parsed.allow_multiple ? 2 : 1) : 2;
-      }
-      const allow_multiple = mode === 'mcq' ? (Boolean(parsed.allow_multiple) && required_count > 1) : false;
-      const options =
-        mode === 'mcq' && Array.isArray(parsed.options) && parsed.options.length >= 4
-          ? parsed.options.slice(0, 4).map(String)
-          : mode === 'mcq'
-          ? ["Emergency fire extinguisher", "Crowbar", "Heavy wool blanket", "Strobe flashlight"]
-          : [];
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((item: any) => {
+        const mode: 'mcq' | 'typing' = item.mode === 'mcq' ? 'mcq' : 'typing';
+        let required_count = Number(item.required_count);
+        if (![1, 2, 3].includes(required_count)) {
+          required_count = mode === 'mcq' ? (item.allow_multiple ? 2 : 1) : 2;
+        }
+        const allow_multiple = mode === 'mcq' ? (Boolean(item.allow_multiple) && required_count > 1) : false;
+        const options =
+          mode === 'mcq' && Array.isArray(item.options) && item.options.length >= 4
+            ? item.options.slice(0, 4).map(String)
+            : mode === 'mcq'
+            ? ["Emergency fire extinguisher", "Crowbar", "Heavy wool blanket", "Strobe flashlight"]
+            : [];
+        const clues =
+          Array.isArray(item.clues) && item.clues.length >= 2
+            ? item.clues.slice(0, 3).map(String)
+            : ["a rusty pipe", "a puddle of oil", "a loose ceiling bracket"];
 
-      return {
-        scenario: parsed.scenario.trim(),
-        mode,
-        required_count,
-        allow_multiple,
-        options,
-      };
+        return {
+          scenario: String(item.scenario || 'Bizarre emergency dilemma').trim(),
+          mode,
+          required_count,
+          allow_multiple,
+          options,
+          clues,
+        };
+      });
     }
 
-    const randomScenario = FALLBACK_SURVIVAL_DATA[Math.floor(Math.random() * FALLBACK_SURVIVAL_DATA.length)];
-    return { ...randomScenario };
+    return [...FALLBACK_SURVIVAL_DATA];
   } catch (err: any) {
-    console.warn('[Gemini] Survival scenario generation error/timeout, using fallback:', err.message || err);
-    const randomScenario = FALLBACK_SURVIVAL_DATA[Math.floor(Math.random() * FALLBACK_SURVIVAL_DATA.length)];
-    return { ...randomScenario };
+    console.warn('[Gemini] Batch survival scenario error/timeout, using curated fallbacks:', err.message || err);
+    return [...FALLBACK_SURVIVAL_DATA];
   }
 }
 
 /**
- * Evaluates whether the user's chosen or typed items allow survival.
- * Returns strict JSON { survived: boolean, verdict: string (max 3 sentences) }.
+ * Generates a single survival scenario (legacy helper).
  */
-export async function judgeSurvivalAttempt(scenario: string, userInput: string[]): Promise<SurvivalJudgeResult> {
+export async function generateSurvivalScenario(): Promise<SurvivalScenarioResult> {
+  const batch = await generateSurvivalScenariosBatch(1);
+  return batch[0] || FALLBACK_SURVIVAL_DATA[0];
+}
+
+/**
+ * Evaluates whether the user's chosen or typed items allow survival using MacGyver logic.
+ * Returns strict JSON { survived: boolean, verdict: string (3 sentences) }.
+ */
+export async function judgeSurvivalAttempt(
+  scenario: string,
+  clues: string[],
+  userInput: string[]
+): Promise<SurvivalJudgeResult> {
   const apiKey = getApiKey();
   const safeItems = userInput
     .map((item) => String(item || '').trim().slice(0, 80))
     .filter(Boolean);
   const itemsText = safeItems.length > 0 ? safeItems.join(', ') : 'nothing';
+  const safeClues = clues.map((c) => String(c || '').trim()).filter(Boolean);
+  const cluesText = safeClues.length > 0 ? safeClues.join(', ') : 'minimal environmental debris';
 
-  const prompt = `The scenario is: '${scenario}'. The user chose/typed: ${itemsText}. Analyze if these items will help them survive. Be funny, highly specific, and brutally logical. Return strict JSON: { 'survived': boolean, 'verdict': 'string (max 3 sentences)' }`;
+  const prompt = `You are a MacGyver-style survival judge. The scenario is: '${scenario}'. The environment clues are: ${cluesText}. The user chose/typed: ${itemsText}. \nBe highly logical but REWARD creativity. If they use the items creatively (even if they are weak items), let them survive. If they completely ignore the environment, they die. Be funny and specific in exactly 3 sentences. Return strict JSON: { 'survived': boolean, 'verdict': 'string' }`;
 
   if (!apiKey || apiKey === 'your-gemini-api-key') {
     return {
-      survived: false,
-      verdict: `You brandished '${itemsText}' with immense confidence, but the danger was completely unimpressed. Attempting this improvised maneuver caused an immediate catastrophic backfire. You perished with dramatic flair, leaving future archaeologists thoroughly confused.`,
+      survived: true,
+      verdict: `Harnessing '${itemsText}' against the surrounding environment, you improvised a borderline miraculous escape mechanism. Your MacGyver-tier ingenuity turned what should have been certain doom into an exhilarating victory. You made it out alive with barely a scratch and an incredible story to tell.`,
     };
   }
 
@@ -888,7 +986,7 @@ export async function judgeSurvivalAttempt(scenario: string, userInput: string[]
     const ai = new GoogleGenAI({ apiKey });
 
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Survival judge evaluation timed out')), 5500)
+      setTimeout(() => reject(new Error('Survival judge evaluation timed out')), 6000)
     );
 
     const generatePromise = ai.models.generateContent({
@@ -914,13 +1012,13 @@ export async function judgeSurvivalAttempt(scenario: string, userInput: string[]
 
     return {
       survived: false,
-      verdict: `Your improvised strategy with '${itemsText}' defied both physics and common sense. While your creativity was commendable, the laws of nature remained stubbornly unyielding. You succumbed to the hazard in spectacular fashion.`,
+      verdict: `Your improvised strategy with '${itemsText}' defied both physics and common sense. While your audacity was noticeable, you completely ignored the critical elements of your environment. You succumbed to the hazard in spectacular fashion.`,
     };
   } catch (err: any) {
     console.warn('[Gemini] Survival judge error/timeout, using fallback:', err.message || err);
     return {
       survived: false,
-      verdict: `Deploying '${itemsText}' bought you precious seconds, but relying on it in this environment was fatal. The situation escalated beyond human salvageability before you could adapt. You did not survive the ordeal.`,
+      verdict: `Deploying '${itemsText}' bought you precious seconds, but failing to integrate the environment proved fatal. The situation escalated beyond human salvageability before your makeshift plan could hold. You did not survive the ordeal.`,
     };
   }
 }

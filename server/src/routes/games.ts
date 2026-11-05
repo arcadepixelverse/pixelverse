@@ -6,9 +6,13 @@ import {
   generateJailbreakTurn,
   generateHigherLowerQuestions,
   generateTuringTestRounds,
+  generateTuringRawBatch,
+  formatAndShuffleRounds,
   TuringDifficulty,
   generateSurvivalScenario,
+  generateSurvivalScenariosBatch,
   judgeSurvivalAttempt,
+  SurvivalScenarioResult,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
@@ -614,7 +618,10 @@ gamesRouter.post(
  * POST /api/games/turing-test/generate
  * Protected by quotaGate.
  * Accepts { difficulty: 'fun' | 'normal' | 'serious' } in request body.
- * Generates 5 question rounds with human and AI answers in randomized order.
+ * Queries Supabase `turing_scenarios` ordered by last_used_at ASC limit 5.
+ * If 5 exist: updates last_used_at = now() and returns them (no AI call).
+ * If < 5 exist: generates 15 new questions via Gemini, saves them, fetches 5 oldest,
+ * updates last_used_at = now(), and returns them formatted and shuffled.
  */
 gamesRouter.post(
   ['/turing-test/generate', '/api/games/turing-test/generate'],
@@ -627,7 +634,73 @@ gamesRouter.post(
           ? rawDifficulty
           : 'normal';
 
-      const rounds = await generateTuringTestRounds(validDifficulty);
+      // Step 1: Query Supabase for 5 questions matching difficulty ordered by last_used_at ASC
+      let { data: questions, error: queryError } = await supabaseAdmin
+        .from('turing_scenarios')
+        .select('*')
+        .eq('difficulty', validDifficulty)
+        .order('last_used_at', { ascending: true, nullsFirst: true })
+        .limit(5);
+
+      if (queryError) {
+        console.warn('[turing-test/generate] Supabase query error:', queryError.message);
+      }
+
+      // Step 2: If < 5 exist, generate 15 new questions via Gemini, save to DB, and refetch
+      if (!questions || questions.length < 5) {
+        console.log(`[turing-test/generate] Found ${questions?.length || 0} questions in DB for '${validDifficulty}'. Generating 15 new questions...`);
+        const generated15 = await generateTuringRawBatch(validDifficulty, 15);
+
+        const rowsToInsert = generated15.map((q) => ({
+          question: q.question,
+          human_answer: q.human_answer,
+          ai_answer: q.ai_answer,
+          difficulty: validDifficulty,
+          last_used_at: null,
+        }));
+
+        const { error: insertError } = await supabaseAdmin
+          .from('turing_scenarios')
+          .insert(rowsToInsert);
+
+        if (insertError) {
+          console.warn('[turing-test/generate] Failed to insert 15 questions to DB:', insertError.message);
+        } else {
+          console.log(`[turing-test/generate] Successfully saved 15 questions for difficulty '${validDifficulty}'.`);
+        }
+
+        // Fetch the 5 oldest matching questions
+        const refetch = await supabaseAdmin
+          .from('turing_scenarios')
+          .select('*')
+          .eq('difficulty', validDifficulty)
+          .order('last_used_at', { ascending: true, nullsFirst: true })
+          .limit(5);
+
+        if (refetch.data && refetch.data.length >= 5) {
+          questions = refetch.data;
+        } else {
+          // If DB is unavailable or didn't return 5, use fallback from generated
+          questions = refetch.data && refetch.data.length > 0 ? refetch.data : generated15.slice(0, 5);
+        }
+      }
+
+      // Step 3: Update last_used_at = now() for the selected rows
+      const nowIso = new Date().toISOString();
+      const idsToUpdate = questions.map((q: any) => q.id).filter(Boolean);
+      if (idsToUpdate.length > 0) {
+        const { error: updateError } = await supabaseAdmin
+          .from('turing_scenarios')
+          .update({ last_used_at: nowIso })
+          .in('id', idsToUpdate);
+
+        if (updateError) {
+          console.warn('[turing-test/generate] Failed to update last_used_at:', updateError.message);
+        }
+      }
+
+      // Step 4: Shuffle options and return formatted rounds
+      const rounds = formatAndShuffleRounds(questions);
       return res.json(rounds);
     } catch (err: any) {
       console.error('[turing-test/generate] Error:', err);
@@ -643,39 +716,126 @@ gamesRouter.post(
  * ── 8. Survival Protocol: Start ──────────────────────────────────────────────
  * POST /api/games/survival/start
  * Protected by quotaGate.
- * Generates a bizarre, dangerous, and specific survival scenario.
+ * Queries Supabase `survival_scenarios` ordered by last_used_at ASC limit 1.
+ * If found: updates last_used_at = now() and returns immediately.
+ * If not found: calls Gemini to generate 10 scenarios in batch with clues,
+ * saves them to the DB, updates last_used_at = now() on the selected row, and returns it.
  */
 gamesRouter.post(
   ['/survival/start', '/api/games/survival/start'],
   quotaGate,
   async (_req: Request, res: Response) => {
     try {
-      const result = await generateSurvivalScenario();
+      // Step 1: Query Supabase for 1 scenario from survival_scenarios ordered by last_used_at ASC limit 1
+      let { data: scenarios, error: queryError } = await supabaseAdmin
+        .from('survival_scenarios')
+        .select('*')
+        .order('last_used_at', { ascending: true, nullsFirst: true })
+        .limit(1);
+
+      if (queryError) {
+        console.warn('[Survival] Query warning for survival_scenarios:', queryError.message);
+      }
+
+      // Step 2: If no scenario found, generate 10 via Gemini in batch and save to DB
+      if (!scenarios || scenarios.length === 0) {
+        console.log('[Survival] No scenarios in DB pool. Generating 10 scenarios via Gemini...');
+        const generated10 = await generateSurvivalScenariosBatch(10);
+
+        const rowsToInsert = generated10.map((s) => ({
+          scenario: s.scenario,
+          mode: s.mode,
+          required_count: s.required_count,
+          allow_multiple: s.allow_multiple,
+          options: s.options,
+          clues: s.clues,
+          last_used_at: null,
+        }));
+
+        const { error: insertError } = await supabaseAdmin
+          .from('survival_scenarios')
+          .insert(rowsToInsert);
+
+        if (insertError) {
+          console.warn('[Survival] Warning: Could not insert batch to Supabase:', insertError.message);
+        } else {
+          console.log('[Survival] Successfully saved 10 scenarios to survival_scenarios table.');
+        }
+
+        // Fetch the oldest one from DB or return the first generated
+        const refetch = await supabaseAdmin
+          .from('survival_scenarios')
+          .select('*')
+          .order('last_used_at', { ascending: true, nullsFirst: true })
+          .limit(1);
+
+        if (refetch.data && refetch.data.length > 0) {
+          scenarios = refetch.data;
+        } else {
+          // If DB insert didn't reflect yet, use first generated scenario
+          return res.json(generated10[0]);
+        }
+      }
+
+      const chosen = scenarios[0];
+      const nowIso = new Date().toISOString();
+
+      // Step 3: Update last_used_at = now() so it rotates to the back of the queue
+      if (chosen.id) {
+        const { error: updateError } = await supabaseAdmin
+          .from('survival_scenarios')
+          .update({ last_used_at: nowIso })
+          .eq('id', chosen.id);
+
+        if (updateError) {
+          console.warn('[Survival] Warning: Failed to update last_used_at:', updateError.message);
+        }
+      }
+
+      // Step 4: Return formatted scenario data with clues
+      const result: SurvivalScenarioResult = {
+        scenario: chosen.scenario,
+        mode: chosen.mode === 'mcq' ? 'mcq' : 'typing',
+        required_count: Number(chosen.required_count) || 2,
+        allow_multiple: Boolean(chosen.allow_multiple),
+        options: Array.isArray(chosen.options)
+          ? chosen.options
+          : typeof chosen.options === 'string'
+          ? JSON.parse(chosen.options)
+          : [],
+        clues: Array.isArray(chosen.clues)
+          ? chosen.clues
+          : typeof chosen.clues === 'string'
+          ? JSON.parse(chosen.clues)
+          : ["a rusty pipe", "a puddle of oil", "a loose ceiling bracket"],
+      };
+
       return res.json(result);
     } catch (err: any) {
       console.error('[survival/start] Error:', err);
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to generate survival scenario.',
+        message: err.message || 'Failed to start survival scenario.',
       });
     }
   }
 );
 
 /**
- * ── 9. Survival Protocol: Judge ──────────────────────────────────────────────
+ * ── 9. Survival Protocol: Judge (MacGyver Logic) ─────────────────────────────
  * POST /api/games/survival/judge
  * Protected by quotaGate.
- * Accepts { scenario, userInput: string[] }.
- * Evaluates whether the chosen/typed items allow survival.
+ * Accepts { scenario, clues, userInput }.
+ * Evaluates whether the chosen/typed items allow survival using environment clues.
  */
 gamesRouter.post(
   ['/survival/judge', '/api/games/survival/judge'],
   quotaGate,
   async (req: Request, res: Response) => {
     try {
-      const { scenario, userInput, items } = req.body || {};
+      const { scenario, clues, userInput, items } = req.body || {};
       const rawInput = Array.isArray(userInput) ? userInput : Array.isArray(items) ? items : [];
+      const rawClues = Array.isArray(clues) ? clues : [];
 
       if (!scenario || typeof scenario !== 'string' || !scenario.trim()) {
         return res.status(400).json({
@@ -691,7 +851,7 @@ gamesRouter.post(
         });
       }
 
-      const result = await judgeSurvivalAttempt(scenario, rawInput);
+      const result = await judgeSurvivalAttempt(scenario, rawClues, rawInput);
       return res.json(result);
     } catch (err: any) {
       console.error('[survival/judge] Error:', err);

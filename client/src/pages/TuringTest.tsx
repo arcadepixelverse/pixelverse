@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
@@ -190,6 +190,8 @@ export function TuringTest() {
   const [selectedAnswer, setSelectedAnswer] = useState<'A' | 'B' | null>(null)
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [hasScoredCurrentRound, setHasScoredCurrentRound] = useState<boolean>(false)
+  const [timeLeft, setTimeLeft] = useState<number>(15)
+  const [isTimedOut, setIsTimedOut] = useState<boolean>(false)
 
   // Fetch rounds for chosen difficulty
   const fetchRounds = async (selectedDifficulty: DifficultyMode = difficulty) => {
@@ -200,6 +202,8 @@ export function TuringTest() {
     setSelectedAnswer(null)
     setIsCorrect(null)
     setHasScoredCurrentRound(false)
+    setTimeLeft(15)
+    setIsTimedOut(false)
 
     try {
       const res = await fetch('http://localhost:10000/api/games/turing-test/generate', {
@@ -235,6 +239,42 @@ export function TuringTest() {
 
   const currentRoundData = rounds[currentRound]
 
+  // 15-second countdown timer per round
+  useEffect(() => {
+    if (gameState !== 'playing' || selectedAnswer !== null) return
+
+    if (timeLeft <= 0) {
+      if (!currentRoundData) return
+      setIsTimedOut(true)
+      // Auto-select a wrong answer (0 points)
+      const wrongAnswer: 'A' | 'B' = currentRoundData.humanAnswer === 'A' ? 'B' : 'A'
+      setSelectedAnswer(wrongAnswer)
+      setIsCorrect(false)
+
+      // Wait 2 seconds and automatically move to the next round
+      const timer = setTimeout(() => {
+        if (currentRound + 1 < rounds.length) {
+          setCurrentRound((prev) => prev + 1)
+          setSelectedAnswer(null)
+          setIsCorrect(null)
+          setHasScoredCurrentRound(false)
+          setTimeLeft(15)
+          setIsTimedOut(false)
+        } else {
+          setGameState('reveal')
+        }
+      }, 2000)
+
+      return () => clearTimeout(timer)
+    }
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => prev - 1)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [gameState, selectedAnswer, timeLeft, currentRoundData, currentRound, rounds.length])
+
   // Handle user selecting an answer card
   const handleSelectAnswer = (option: 'A' | 'B') => {
     if (selectedAnswer !== null || !currentRoundData) return
@@ -256,6 +296,8 @@ export function TuringTest() {
       setSelectedAnswer(null)
       setIsCorrect(null)
       setHasScoredCurrentRound(false)
+      setTimeLeft(15)
+      setIsTimedOut(false)
     } else {
       setGameState('reveal')
     }
@@ -368,6 +410,20 @@ export function TuringTest() {
 
           {gameState === 'playing' && rounds.length > 0 && (
             <>
+              {/* Glowing Red Timer Badge */}
+              <motion.div
+                animate={timeLeft <= 5 ? { scale: [1, 1.08, 1] } : {}}
+                transition={timeLeft <= 5 ? { repeat: Infinity, duration: 0.5 } : {}}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider font-bold transition-all shadow-md ${
+                  timeLeft <= 5
+                    ? 'bg-red-500/25 text-red-300 border border-red-500/60 shadow-[0_0_18px_rgba(255,69,58,0.6)] animate-pulse'
+                    : 'bg-red-500/15 text-red-400 border border-red-500/35 shadow-[0_0_10px_rgba(255,69,58,0.25)]'
+                }`}
+              >
+                <span className="text-sm">⏱</span>
+                <span className="font-mono">{timeLeft}s</span>
+              </motion.div>
+
               <div
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-mono tracking-wider"
                 style={{
@@ -761,13 +817,19 @@ export function TuringTest() {
                   }}
                 >
                   <div className="flex items-center gap-3 text-center sm:text-left">
-                    <span className="text-2xl">{isCorrect ? '🎯' : '🤖'}</span>
+                    <span className="text-2xl">{isTimedOut ? '⏱' : isCorrect ? '🎯' : '🤖'}</span>
                     <div>
                       <p className={`text-sm font-bold uppercase tracking-wider ${isCorrect ? 'text-green-300' : 'text-red-300'}`}>
-                        {isCorrect ? 'CORRECT! You spotted the human.' : 'DECEIVED! The machine tricked you.'}
+                        {isTimedOut
+                          ? `TIME OUT! The human was Answer ${currentRoundData.humanAnswer}`
+                          : isCorrect
+                          ? 'CORRECT! You spotted the human.'
+                          : 'DECEIVED! The machine tricked you.'}
                       </p>
                       <p className="text-xs text-white/50 font-mono">
-                        {isCorrect
+                        {isTimedOut
+                          ? 'Zero points awarded. Advancing automatically in 2 seconds...'
+                          : isCorrect
                           ? 'The cynical, lowercase human energy was unmistakable.'
                           : 'You mistook polished neural prose for human thought.'}
                       </p>
