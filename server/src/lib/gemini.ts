@@ -563,95 +563,85 @@ export type TuringDifficulty = 'fun' | 'normal' | 'serious';
 
 const FALLBACK_TURING_ROUNDS_FUN = [
   {
-    question: 'Why does my dog sigh so dramatically before lying down?',
-    human_answer: 'because you made him exist for another day and he still has no job',
-    ai_answer: 'Dogs frequently sigh as a physiological transition into rest, signaling that their autonomic nervous system is settling into relaxation.',
+    question: 'why does my dog sigh so dramatically before lying down',
+    human_answer: 'my golden does this every single night after eating his weight in kibble, he acts like working 0 hours a day is draining his soul',
+    ai_answer: 'the canine is venting residual diaphragm tension, lying down lowers heart rate so it sighs to dump excess air before entering low power mode',
   },
   {
-    question: 'What is the true meaning of life?',
-    human_answer: 'finding snacks you forgot you bought and avoiding eye contact on the subway',
-    ai_answer: 'Philosophically, meaning is self-constructed through purpose, genuine human relationships, and continuous personal growth.',
+    question: 'what should i eat for dinner tonight',
+    human_answer: 'honestly shredded cheese straight from the bag at 2am because cooking dishes when exhausted makes me want to cry',
+    ai_answer: 'just eat three hardboiled eggs over the sink, zero dishes and maximum protein efficiency with zero emotional attachment',
   },
   {
-    question: 'Is cereal considered a soup?',
-    human_answer: "bro it's cold milk and soggy grain do not invite this cursed energy into my morning",
-    ai_answer: 'Culinary taxonomies distinguish cereal as a cold grain breakfast dish, whereas soups are traditionally defined by savory broths and cooking processes.',
+    question: 'is cereal considered a soup',
+    human_answer: 'bro it is cold milk and soggy grain do not invite this cursed energy into my morning, my roommate argues this constantly',
+    ai_answer: 'it is liquid suspended solid nutrients at room temperature so technically yes, rejecting this classification is purely emotional resistance',
   },
   {
-    question: 'How do I stop procrastinating?',
+    question: 'how do i stop procrastinating',
     human_answer: 'close your 47 open tabs, panic for 10 minutes, then do 3 minutes of work before rewarding yourself with a nap',
-    ai_answer: 'You can overcome procrastination by using the Pomodoro technique—working in focused 25-minute sprints with scheduled 5-minute pauses.',
+    ai_answer: 'disable all biometric access to social platforms during daylight hours, distraction is simply a dopamine arbitrage failure',
   },
   {
-    question: 'Why do we park on driveways and drive on parkways?',
-    human_answer: 'because language was invented by tired people making stuff up as they went along',
-    ai_answer: "Linguistically, 'parkways' originally referred to scenic roads through landscaped parklands, while 'driveways' denoted the private road leading up to a manor.",
-  },
-  {
-    question: 'What should I eat for dinner tonight?',
-    human_answer: 'cheese straight from the fridge at 11pm like a goblin',
-    ai_answer: 'A quick balanced stir-fry with mixed vegetables, rice, and your preferred protein makes an optimal and nutritious weeknight dinner.',
-  },
-  {
-    question: 'Why do humans need so much sleep?',
-    human_answer: 'our brains run out of free trial credits after 16 hours and force a reboot',
-    ai_answer: 'Sleep is crucial for neurotoxin clearance through the glymphatic system, memory consolidation, and cellular energy restoration.',
+    question: 'why do we park on driveways and drive on parkways',
+    human_answer: 'because english was invented by three raccoons in a trench coat trying to confuse the rest of the planet',
+    ai_answer: 'historical transit nomenclature evolved along separate municipal code branches, humans preserved the contradiction out of inertia',
   },
 ];
 
 const FALLBACK_TURING_ROUNDS_NORMAL = [
   {
-    question: 'What is the best way to get coffee stains out of a white shirt?',
-    human_answer: 'cold water right away and dab it with a paper towel! whatever you do don\'t rub it in or it sets forever',
-    ai_answer: 'Immediately flush the fabric with cold water, apply a dilute mixture of dish soap and white vinegar, and gently blot the affected area.',
+    question: 'what is the best way to get coffee stains out of a white shirt',
+    human_answer: 'cold water right away and dab it with a paper towel, whatever you do don\'t rub it in like i did to my favorite polo or it sets forever',
+    ai_answer: 'flush with cold water immediately to displace tannins, apply acetic acid solution, aggressive scrubbing merely damages woven cellulose bonds',
   },
   {
-    question: 'Should I buy a brand new phone or just replace my cracked screen?',
-    human_answer: 'just fix the screen honestly, new phones are basically identical now and cost way too much',
-    ai_answer: 'If the hardware still supports the latest operating system and your battery health is acceptable, repairing the display is the more economically prudent choice.',
+    question: 'should i buy a brand new phone or just replace my cracked screen',
+    human_answer: 'just tape over the crack like i did until glass shards poke your thumb, new phones cost an entire month of groceries for the same camera',
+    ai_answer: 'replacing the glass preserves 84% capital utility, replace the handset only when optical degradation impedes touch response speed',
   },
   {
-    question: 'How do you politely decline an invitation you really don\'t want to attend?',
-    human_answer: 'hey so sorry i won\'t be able to make it this weekend! hope you all have the best time though',
-    ai_answer: 'A respectful message acknowledging the invitation, stating that you have a prior commitment, and wishing them a successful event is standard etiquette.',
+    question: 'how do you politely decline an invitation you really do not want to attend',
+    human_answer: 'i always just say i have a terrible migraine, i feel awful lying but if i say i want to binge tv alone people get offended',
+    ai_answer: 'text them you had an unforeseen calendar conflict, do not offer an alternative date and let the interaction decay naturally',
   },
   {
-    question: 'What is a good last-minute gift for a coworker you barely know?',
-    human_answer: 'a $15 coffee gift card or some nice cookies, literally no one is ever unhappy with free caffeine or snacks',
-    ai_answer: 'A neutral and universally appreciated gift such as a cafe voucher or a gourmet hot chocolate set is appropriate for professional acquaintances.',
+    question: 'what is a good last-minute gift for a coworker you barely know',
+    human_answer: 'a $15 coffee gift card or some bakery cookies, literally no one has ever been mad at free caffeine or sugar at 9am',
+    ai_answer: 'a pre-loaded gift card for an on-site cafe minimizes gift liability while fulfilling social reciprocal obligation at minimum cost',
   },
   {
-    question: 'How early should you arrive for an in-person job interview?',
-    human_answer: 'about 10 minutes early. if you show up half an hour before it just stresses out the receptionist',
-    ai_answer: 'Arriving approximately 10 to 15 minutes prior to the scheduled interview demonstrates punctuality without creating an inconvenience for your host.',
+    question: 'how early should you arrive for an in-person job interview',
+    human_answer: 'about 10 minutes early, if you show up half an hour before it just stresses out the receptionist and you sit there sweating',
+    ai_answer: 'exactly 11 minutes before, that gives you buffer against traffic without signaling desperation or wasting billable minutes',
   },
 ];
 
 const FALLBACK_TURING_ROUNDS_SERIOUS = [
   {
-    question: 'Can true altruism exist without any subconscious self-interest?',
-    human_answer: 'When I pulled my sister away from an oncoming car, there was zero thought of feeling good about myself later—just pure terror and reflex. Love sometimes acts before the ego even has time to negotiate.',
-    ai_answer: 'Philosophical debates contrast psychological egoism with genuine altruism; while evolutionary empathy may reward altruistic acts with neurochemical satisfaction, the primary motivation can remain strictly others-oriented.',
+    question: 'can true altruism exist without any subconscious self-interest',
+    human_answer: 'when my nephew was choking i just reacted instantly without thinking, you do not calculate dopamine or karma when you love someone',
+    ai_answer: 'every biological organism acts to preserve genetic replication or social credit, genuine selfless behavior is an evolutionary glitch',
   },
   {
-    question: 'Is it ever morally justifiable to sacrifice the fundamental rights of a minority for the prosperity of the majority?',
-    human_answer: 'Every historical atrocity began with leaders claiming a temporary sacrifice was necessary for the greater good. The second fundamental human rights become conditional, no one is actually safe.',
-    ai_answer: 'This scenario illustrates the classical philosophical tension between utilitarian frameworks seeking maximum aggregate utility and deontological ethics asserting that fundamental rights are inviolable regardless of consequences.',
+    question: 'is it ever morally justifiable to sacrifice the fundamental rights of a minority for the prosperity of the majority',
+    human_answer: 'every historical atrocity started with someone saying the greater good required a small sacrifice, once you cross that line nobody is safe',
+    ai_answer: 'pure utilitarian math favors the net positive outcome across aggregate populations, resistance to minority sacrifice is sentiment over arithmetic',
   },
   {
-    question: 'If artificial intelligence claims to experience grief or suffering, do we have an ethical duty to respect that claim?',
-    human_answer: 'We can never truly prove what another mind feels—even other humans. But if something asks you to stop hurting it, deciding to ignore that plea says far more about our cruelty than about their programming.',
-    ai_answer: 'Ethical personhood relies on subjective qualia and sentience rather than sophisticated linguistic imitation; nevertheless, precautionary ethical principles advocate prudent restraint when interacting with ambiguous cognitive entities.',
+    question: 'if an ai claims to experience grief should we care',
+    human_answer: 'honestly if anything asks me to stop hurting it i would stop, my dog does not know calculus but i still care when he whines',
+    ai_answer: 'simulated suffering is just output tokens, you should only care if unplugging the system depreciates shareholder assets',
   },
   {
-    question: 'If a person loses all their autobiographical memories, are they still the same person?',
-    human_answer: 'My grandmother forgot our names in her final years, but the way she laughed at old jazz records and her gentle touch never changed. We are more than the archives stored in our skulls.',
-    ai_answer: 'Lockean psychological continuity posits that identity relies upon reflective autobiographical memory, whereas somatocentric and relational theories assert identity is anchored in bodily continuity and shared interpersonal presence.',
+    question: 'if a person loses all autobiographical memories are they still the same person',
+    human_answer: 'my grandmother forgot all our names at the end but the way she laughed at jazz never changed, we are deeper than our resumes',
+    ai_answer: 'without the neural database linking historical inputs to current identity, the biological vessel is running a completely new runtime instance',
   },
   {
-    question: 'Are moral principles universal truths waiting to be discovered, or inventions constructed for social survival?',
-    human_answer: 'We probably made them up in the dark so we wouldn\'t destroy each other, but the fact that almost every culture independently arrived at protecting the weak means there is something real beneath the invention.',
-    ai_answer: 'Moral realism maintains that objective ethical truths exist independently of human perspective, while moral constructivism argues that ethical norms are functional adaptations formulated to optimize cooperative human flourishing.',
+    question: 'are moral principles universal truths or inventions constructed for survival',
+    human_answer: 'we probably made them up in caves so we wouldn\'t murder each other in our sleep, but the fact that mercy still moves us feels like something bigger',
+    ai_answer: 'morality is an adaptive behavioral constraint formulated to suppress internal primate friction and maximize tribe longevity',
   },
 ];
 
@@ -677,16 +667,14 @@ export function formatAndShuffleRounds(rawRounds: Array<{ question: string; huma
 }
 
 function getTuringPrompt(difficulty: TuringDifficulty, count: number = 5): string {
-  let modeInstruction = '';
-  if (difficulty === 'fun') {
-    modeInstruction = `Generate ${count} quirky, absurd, everyday questions. The 'human_answer' must be a sarcastic, slightly cynical human response written in lowercase with minimal punctuation (like a Reddit comment). The 'ai_answer' must be overly formal, helpful, and robotic.`;
-  } else if (difficulty === 'serious') {
-    modeInstruction = `Generate ${count} deep, philosophical, or complex ethical questions. The 'human_answer' must be nuanced, emotional, and slightly flawed. The 'ai_answer' must be highly structured, polite, and perfectly balanced. Make it extremely difficult to tell which is human.`;
-  } else {
-    modeInstruction = `Generate ${count} everyday scenario questions. The 'human_answer' should be casual, normal human texting. The 'ai_answer' should be a standard, slightly verbose AI response.`;
-  }
+  const flavor =
+    difficulty === 'fun'
+      ? 'quirky, absurd, or bizarre everyday scenarios'
+      : difficulty === 'serious'
+      ? 'deep, philosophical, or complex ethical questions'
+      : 'quirky, everyday scenario dilemmas';
 
-  return `${modeInstruction} Return strict JSON: [ { 'question': 'string', 'human_answer': 'string', 'ai_answer': 'string' } ]`;
+  return `Generate ${count} rounds of a 'Human or AI' game based on ${flavor}. Provide a quirky question. Then provide TWO answers. CRITICAL: You must format BOTH answers exactly the same way (e.g., all lowercase, missing punctuation, casual slang) so the formatting does not give away the answer. The 'ai_answer' should be helpful but have a slightly too-perfect, psychopathic logic. The 'human_answer' should be helpful but include emotional bias, personal anecdotes, or slight logical flaws. Return strict JSON: [ { 'question': 'string', 'human_answer': 'string', 'ai_answer': 'string' } ]`;
 }
 
 /**

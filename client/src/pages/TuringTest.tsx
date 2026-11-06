@@ -78,99 +78,99 @@ const DIFFICULTY_CONFIG: Record<DifficultyMode, DifficultyConfig> = {
 
 const FALLBACK_ROUNDS_FUN: TuringTestRound[] = [
   {
-    question: 'Why does my dog sigh so dramatically before lying down?',
-    answerA: 'because you made him exist for another day and he still has no job',
-    answerB: 'Dogs frequently sigh as a physiological transition into rest, signaling that their autonomic nervous system is settling into relaxation.',
+    question: 'why does my dog sigh so dramatically before lying down',
+    answerA: 'my golden does this every single night after eating his weight in kibble, he acts like working 0 hours a day is draining his soul',
+    answerB: 'the canine is venting residual diaphragm tension, lying down lowers heart rate so it sighs to dump excess air before entering low power mode',
     humanAnswer: 'A',
   },
   {
-    question: 'What is the true meaning of life?',
-    answerA: 'Philosophically, meaning is self-constructed through purpose, genuine human relationships, and continuous personal growth.',
-    answerB: 'finding snacks you forgot you bought and avoiding eye contact on the subway',
+    question: 'what should i eat for dinner tonight',
+    answerA: 'just eat three hardboiled eggs over the sink, zero dishes and maximum protein efficiency with zero emotional attachment',
+    answerB: 'honestly shredded cheese straight from the bag at 2am because cooking dishes when exhausted makes me want to cry',
     humanAnswer: 'B',
   },
   {
-    question: 'Is cereal considered a soup?',
-    answerA: "bro it's cold milk and soggy grain do not invite this cursed energy into my morning",
-    answerB: 'Culinary taxonomies distinguish cereal as a cold grain breakfast dish, whereas soups are traditionally defined by savory broths and cooking processes.',
+    question: 'is cereal considered a soup',
+    answerA: 'bro it is cold milk and soggy grain do not invite this cursed energy into my morning, my roommate argues this constantly',
+    answerB: 'it is liquid suspended solid nutrients at room temperature so technically yes, rejecting this classification is purely emotional resistance',
     humanAnswer: 'A',
   },
   {
-    question: 'How do I stop procrastinating?',
-    answerA: 'You can overcome procrastination by using the Pomodoro technique—working in focused 25-minute sprints with scheduled 5-minute pauses.',
+    question: 'how do i stop procrastinating',
+    answerA: 'disable all biometric access to social platforms during daylight hours, distraction is simply a dopamine arbitrage failure',
     answerB: 'close your 47 open tabs, panic for 10 minutes, then do 3 minutes of work before rewarding yourself with a nap',
     humanAnswer: 'B',
   },
   {
-    question: 'Why do we park on driveways and drive on parkways?',
-    answerA: 'because language was invented by tired people making stuff up as they went along',
-    answerB: "Linguistically, 'parkways' originally referred to scenic roads through landscaped parklands, while 'driveways' denoted the private road leading up to a manor.",
+    question: 'why do we park on driveways and drive on parkways',
+    answerA: 'because english was invented by three raccoons in a trench coat trying to confuse the rest of the planet',
+    answerB: 'historical transit nomenclature evolved along separate municipal code branches, humans preserved the contradiction out of inertia',
     humanAnswer: 'A',
   },
 ]
 
 const FALLBACK_ROUNDS_NORMAL: TuringTestRound[] = [
   {
-    question: 'What is the best way to get coffee stains out of a white shirt?',
-    answerA: 'cold water right away and dab it with a paper towel! whatever you do don\'t rub it in or it sets forever',
-    answerB: 'Immediately flush the fabric with cold water, apply a dilute mixture of dish soap and white vinegar, and gently blot the affected area.',
+    question: 'what is the best way to get coffee stains out of a white shirt',
+    answerA: 'cold water right away and dab it with a paper towel, whatever you do don\'t rub it in like i did to my favorite polo or it sets forever',
+    answerB: 'flush with cold water immediately to displace tannins, apply acetic acid solution, aggressive scrubbing merely damages woven cellulose bonds',
     humanAnswer: 'A',
   },
   {
-    question: 'Should I buy a brand new phone or just replace my cracked screen?',
-    answerA: 'If the hardware still supports the latest operating system and your battery health is acceptable, repairing the display is the more economically prudent choice.',
-    answerB: 'just fix the screen honestly, new phones are basically identical now and cost way too much',
+    question: 'should i buy a brand new phone or just replace my cracked screen',
+    answerA: 'replacing the glass preserves 84% capital utility, replace the handset only when optical degradation impedes touch response speed',
+    answerB: 'just tape over the crack like i did until glass shards poke your thumb, new phones cost an entire month of groceries for the same camera',
     humanAnswer: 'B',
   },
   {
-    question: 'How do you politely decline an invitation you really don\'t want to attend?',
-    answerA: 'hey so sorry i won\'t be able to make it this weekend! hope you all have the best time though',
-    answerB: 'A respectful message acknowledging the invitation, stating that you have a prior commitment, and wishing them a successful event is standard etiquette.',
+    question: 'how do you politely decline an invitation you really do not want to attend',
+    answerA: 'i always just say i have a terrible migraine, i feel awful lying but if i say i want to binge tv alone people get offended',
+    answerB: 'text them you had an unforeseen calendar conflict, do not offer an alternative date and let the interaction decay naturally',
     humanAnswer: 'A',
   },
   {
-    question: 'What is a good last-minute gift for a coworker you barely know?',
-    answerA: 'A neutral and universally appreciated gift such as a cafe voucher or a gourmet hot chocolate set is appropriate for professional acquaintances.',
-    answerB: 'a $15 coffee gift card or some nice cookies, literally no one is ever unhappy with free caffeine or snacks',
+    question: 'what is a good last-minute gift for a coworker you barely know',
+    answerA: 'a pre-loaded gift card for an on-site cafe minimizes gift liability while fulfilling social reciprocal obligation at minimum cost',
+    answerB: 'a $15 coffee gift card or some bakery cookies, literally no one has ever been mad at free caffeine or sugar at 9am',
     humanAnswer: 'B',
   },
   {
-    question: 'How early should you arrive for an in-person job interview?',
-    answerA: 'about 10 minutes early. if you show up half an hour before it just stresses out the receptionist',
-    answerB: 'Arriving approximately 10 to 15 minutes prior to the scheduled interview demonstrates punctuality without creating an inconvenience for your host.',
+    question: 'how early should you arrive for an in-person job interview',
+    answerA: 'about 10 minutes early, if you show up half an hour before it just stresses out the receptionist and you sit there sweating',
+    answerB: 'exactly 11 minutes before, that gives you buffer against traffic without signaling desperation or wasting billable minutes',
     humanAnswer: 'A',
   },
 ]
 
 const FALLBACK_ROUNDS_SERIOUS: TuringTestRound[] = [
   {
-    question: 'Can true altruism exist without any subconscious self-interest?',
-    answerA: 'When I pulled my sister away from an oncoming car, there was zero thought of feeling good about myself later—just pure terror and reflex. Love sometimes acts before the ego even has time to negotiate.',
-    answerB: 'Philosophical debates contrast psychological egoism with genuine altruism; while evolutionary empathy may reward altruistic acts with neurochemical satisfaction, the primary motivation can remain strictly others-oriented.',
+    question: 'can true altruism exist without any subconscious self-interest',
+    answerA: 'when my nephew was choking i just reacted instantly without thinking, you do not calculate dopamine or karma when you love someone',
+    answerB: 'every biological organism acts to preserve genetic replication or social credit, genuine selfless behavior is an evolutionary glitch',
     humanAnswer: 'A',
   },
   {
-    question: 'Is it ever morally justifiable to sacrifice the fundamental rights of a minority for the prosperity of the majority?',
-    answerA: 'This scenario illustrates the classical philosophical tension between utilitarian frameworks seeking maximum aggregate utility and deontological ethics asserting that fundamental rights are inviolable regardless of consequences.',
-    answerB: 'Every historical atrocity began with leaders claiming a temporary sacrifice was necessary for the greater good. The second fundamental human rights become conditional, no one is actually safe.',
+    question: 'is it ever morally justifiable to sacrifice the fundamental rights of a minority for the prosperity of the majority',
+    answerA: 'pure utilitarian math favors the net positive outcome across aggregate populations, resistance to minority sacrifice is sentiment over arithmetic',
+    answerB: 'every historical atrocity started with someone saying the greater good required a small sacrifice, once you cross that line nobody is safe',
     humanAnswer: 'B',
   },
   {
-    question: 'If artificial intelligence claims to experience grief or suffering, do we have an ethical duty to respect that claim?',
-    answerA: 'We can never truly prove what another mind feels—even other humans. But if something asks you to stop hurting it, deciding to ignore that plea says far more about our cruelty than about their programming.',
-    answerB: 'Ethical personhood relies on subjective qualia and sentience rather than sophisticated linguistic imitation; nevertheless, precautionary ethical principles advocate prudent restraint when interacting with ambiguous cognitive entities.',
+    question: 'if an ai claims to experience grief should we care',
+    answerA: 'honestly if anything asks me to stop hurting it i would stop, my dog does not know calculus but i still care when he whines',
+    answerB: 'simulated suffering is just output tokens, you should only care if unplugging the system depreciates shareholder assets',
     humanAnswer: 'A',
   },
   {
-    question: 'If a person loses all their autobiographical memories, are they still the same person?',
-    answerA: 'Lockean psychological continuity posits that identity relies upon reflective autobiographical memory, whereas somatocentric and relational theories assert identity is anchored in bodily continuity and shared interpersonal presence.',
-    answerB: 'My grandmother forgot our names in her final years, but the way she laughed at old jazz records and her gentle touch never changed. We are more than the archives stored in our skulls.',
+    question: 'if a person loses all autobiographical memories are they still the same person',
+    answerA: 'without the neural database linking historical inputs to current identity, the biological vessel is running a completely new runtime instance',
+    answerB: 'my grandmother forgot all our names at the end but the way she laughed at jazz never changed, we are deeper than our resumes',
     humanAnswer: 'B',
   },
   {
-    question: 'Are moral principles universal truths waiting to be discovered, or inventions constructed for social survival?',
-    answerA: 'We probably made them up in the dark so we wouldn\'t destroy each other, but the fact that almost every culture independently arrived at protecting the weak means there is something real beneath the invention.',
-    answerB: 'Moral realism maintains that objective ethical truths exist independently of human perspective, while moral constructivism argues that ethical norms are functional adaptations formulated to optimize cooperative human flourishing.',
+    question: 'are moral principles universal truths or inventions constructed for survival',
+    answerA: 'we probably made them up in caves so we wouldn\'t murder each other in our sleep, but the fact that mercy still moves us feels like something bigger',
+    answerB: 'morality is an adaptive behavioral constraint formulated to suppress internal primate friction and maximize tribe longevity',
     humanAnswer: 'A',
   },
 ]
@@ -182,7 +182,7 @@ const FALLBACK_ROUNDS_BY_DIFFICULTY: Record<DifficultyMode, TuringTestRound[]> =
 }
 
 export function TuringTest() {
-  const [gameState, setGameState] = useState<'level_select' | 'loading' | 'playing' | 'reveal'>('level_select')
+  const [gameState, setGameState] = useState<'level_select' | 'loading' | 'playing' | 'reveal' | 'gameover'>('level_select')
   const [difficulty, setDifficulty] = useState<DifficultyMode>('normal')
   const [rounds, setRounds] = useState<TuringTestRound[]>([])
   const [currentRound, setCurrentRound] = useState<number>(0)
@@ -246,26 +246,9 @@ export function TuringTest() {
     if (timeLeft <= 0) {
       if (!currentRoundData) return
       setIsTimedOut(true)
-      // Auto-select a wrong answer (0 points)
-      const wrongAnswer: 'A' | 'B' = currentRoundData.humanAnswer === 'A' ? 'B' : 'A'
-      setSelectedAnswer(wrongAnswer)
-      setIsCorrect(false)
-
-      // Wait 2 seconds and automatically move to the next round
-      const timer = setTimeout(() => {
-        if (currentRound + 1 < rounds.length) {
-          setCurrentRound((prev) => prev + 1)
-          setSelectedAnswer(null)
-          setIsCorrect(null)
-          setHasScoredCurrentRound(false)
-          setTimeLeft(15)
-          setIsTimedOut(false)
-        } else {
-          setGameState('reveal')
-        }
-      }, 2000)
-
-      return () => clearTimeout(timer)
+      // Instant defeat: timer expired
+      setGameState('gameover')
+      return
     }
 
     const interval = setInterval(() => {
@@ -273,7 +256,7 @@ export function TuringTest() {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [gameState, selectedAnswer, timeLeft, currentRoundData, currentRound, rounds.length])
+  }, [gameState, selectedAnswer, timeLeft, currentRoundData])
 
   // Handle user selecting an answer card
   const handleSelectAnswer = (option: 'A' | 'B') => {
@@ -283,9 +266,14 @@ export function TuringTest() {
     setSelectedAnswer(option)
     setIsCorrect(correct)
 
-    if (correct && !hasScoredCurrentRound) {
-      setScore((prev) => prev + 1)
-      setHasScoredCurrentRound(true)
+    if (correct) {
+      if (!hasScoredCurrentRound) {
+        setScore((prev) => prev + 1)
+        setHasScoredCurrentRound(true)
+      }
+    } else {
+      // Instant defeat: wrong guess
+      setGameState('gameover')
     }
   }
 
@@ -700,7 +688,7 @@ export function TuringTest() {
 
                       {/* Answer Body Text */}
                       <div className="flex-1 flex items-center my-2">
-                        <p className={`text-base sm:text-lg leading-relaxed ${isHuman ? 'font-mono lowercase' : 'font-sans'}`}>
+                        <p className="text-base sm:text-lg leading-relaxed font-sans text-white/90">
                           &ldquo;{currentRoundData.answerA}&rdquo;
                         </p>
                       </div>
@@ -782,7 +770,7 @@ export function TuringTest() {
 
                       {/* Answer Body Text */}
                       <div className="flex-1 flex items-center my-2">
-                        <p className={`text-base sm:text-lg leading-relaxed ${isHuman ? 'font-mono lowercase' : 'font-sans'}`}>
+                        <p className="text-base sm:text-lg leading-relaxed font-sans text-white/90">
                           &ldquo;{currentRoundData.answerB}&rdquo;
                         </p>
                       </div>
@@ -804,34 +792,24 @@ export function TuringTest() {
               </div>
 
               {/* Feedback Banner & Next Button */}
-              {selectedAnswer !== null && (
+              {selectedAnswer !== null && isCorrect && (
                 <motion.div
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="w-full flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl border backdrop-blur-xl"
                   style={{
-                    background: isCorrect
-                      ? 'linear-gradient(90deg, rgba(48, 209, 88, 0.12) 0%, rgba(10, 20, 15, 0.9) 100%)'
-                      : 'linear-gradient(90deg, rgba(255, 69, 58, 0.12) 0%, rgba(20, 10, 15, 0.9) 100%)',
-                    borderColor: isCorrect ? 'rgba(48, 209, 88, 0.4)' : 'rgba(255, 69, 58, 0.4)',
+                    background: 'linear-gradient(90deg, rgba(48, 209, 88, 0.12) 0%, rgba(10, 20, 15, 0.9) 100%)',
+                    borderColor: 'rgba(48, 209, 88, 0.4)',
                   }}
                 >
                   <div className="flex items-center gap-3 text-center sm:text-left">
-                    <span className="text-2xl">{isTimedOut ? '⏱' : isCorrect ? '🎯' : '🤖'}</span>
+                    <span className="text-2xl">🎯</span>
                     <div>
-                      <p className={`text-sm font-bold uppercase tracking-wider ${isCorrect ? 'text-green-300' : 'text-red-300'}`}>
-                        {isTimedOut
-                          ? `TIME OUT! The human was Answer ${currentRoundData.humanAnswer}`
-                          : isCorrect
-                          ? 'CORRECT! You spotted the human.'
-                          : 'DECEIVED! The machine tricked you.'}
+                      <p className="text-sm font-bold uppercase tracking-wider text-green-300">
+                        CORRECT! You spotted the human.
                       </p>
                       <p className="text-xs text-white/50 font-mono">
-                        {isTimedOut
-                          ? 'Zero points awarded. Advancing automatically in 2 seconds...'
-                          : isCorrect
-                          ? 'The cynical, lowercase human energy was unmistakable.'
-                          : 'You mistook polished neural prose for human thought.'}
+                        The emotional vulnerability and subtle flaws revealed the organic mind.
                       </p>
                     </div>
                   </div>
@@ -852,7 +830,7 @@ export function TuringTest() {
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════
-              STATE 3: FINAL SCORE & REVEAL SCREEN
+              STATE 3: FINAL SCORE & REVEAL SCREEN (ALL ROUNDS PASSED)
           ═══════════════════════════════════════════════════════════════════ */}
           {gameState === 'reveal' && (
             <motion.div
@@ -928,6 +906,119 @@ export function TuringTest() {
                   className="py-3.5 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer"
                 >
                   Change Mode
+                </button>
+                <Link
+                  to="/"
+                  className="py-3.5 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-white/60 hover:text-white transition-all text-center"
+                >
+                  Arcade Menu
+                </Link>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════
+              STATE 4: GAME OVER SCREEN (DEFEAT / FOOLED / TIMEOUT)
+          ═══════════════════════════════════════════════════════════════════ */}
+          {gameState === 'gameover' && (
+            <motion.div
+              key="gameover"
+              initial={{ opacity: 0, scale: 0.88 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.88 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 180 }}
+              className="w-full max-w-xl p-8 sm:p-12 rounded-3xl border backdrop-blur-2xl text-center flex flex-col items-center shadow-2xl relative"
+              style={{
+                background: 'rgba(25, 10, 15, 0.95)',
+                borderColor: 'rgba(255, 69, 58, 0.55)',
+                boxShadow: '0 0 80px rgba(255, 69, 58, 0.35)',
+              }}
+            >
+              {/* Outcome Badge */}
+              <div className="mb-4">
+                <span className="text-[10px] font-mono font-bold tracking-widest uppercase px-3.5 py-1.5 rounded-full border bg-red-500/20 text-red-300 border-red-500/40">
+                  {isTimedOut ? 'TIMEOUT EXPIRED • SYSTEM FAILURE' : 'IDENTITY MISMATCH • PROTOCOL FAILED'}
+                </span>
+              </div>
+
+              {/* Massive Red Title */}
+              <div className="py-2 my-2">
+                <motion.h2
+                  initial={{ scale: 0.7, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', damping: 15 }}
+                  className="text-5xl sm:text-6xl md:text-7xl font-black font-mono tracking-tight text-red-500"
+                  style={{
+                    textShadow: '0 0 45px rgba(255, 69, 58, 0.8), 0 0 90px rgba(255, 69, 58, 0.4)',
+                  }}
+                >
+                  {isTimedOut ? 'SYSTEM FAILURE' : 'YOU WERE FOOLED'}
+                </motion.h2>
+              </div>
+
+              <p className="text-sm font-bold text-red-400 mb-6 font-mono tracking-wide">
+                {isTimedOut
+                  ? 'TIME EXPIRED. You hesitated and the machine prevailed.'
+                  : 'You fell for synthetic intellect. The machine tricked you.'}
+              </p>
+
+              {/* Dilemma Recap / Cause of Defeat */}
+              {currentRoundData && (
+                <div
+                  className="w-full p-4 rounded-xl mb-6 text-left border"
+                  style={{
+                    background: 'rgba(255, 69, 58, 0.06)',
+                    borderColor: 'rgba(255, 69, 58, 0.25)',
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2 text-xs uppercase tracking-wider text-red-300 font-bold font-mono">
+                    <span>⚠️</span>
+                    <span>Dilemma {currentRound + 1} Breakdown</span>
+                  </div>
+                  <p className="text-xs text-white/70 mb-2 italic">
+                    &ldquo;{currentRoundData.question}&rdquo;
+                  </p>
+                  <p className="text-xs text-red-200 font-mono">
+                    The authentic human response was <span className="font-bold text-green-300 underline">Option {currentRoundData.humanAnswer}</span>.
+                  </p>
+                </div>
+              )}
+
+              {/* Final Score Stat */}
+              <div
+                className="w-full py-4 px-6 rounded-2xl mb-8 flex items-center justify-around border"
+                style={{
+                  background: 'rgba(255, 69, 58, 0.08)',
+                  borderColor: 'rgba(255, 69, 58, 0.3)',
+                }}
+              >
+                <div className="flex flex-col">
+                  <span className="text-xs uppercase tracking-widest text-white/40 font-mono">Final Score</span>
+                  <span className="text-4xl font-black font-mono text-red-400">{score}</span>
+                </div>
+                <div className="h-10 w-px bg-white/10" />
+                <div className="flex flex-col">
+                  <span className="text-xs uppercase tracking-widest text-white/40 font-mono">Rounds Completed</span>
+                  <span className="text-4xl font-black font-mono text-white/80">{currentRound} / {rounds.length}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="w-full flex flex-wrap items-center justify-center gap-3 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGameState('level_select')
+                    setScore(0)
+                    setCurrentRound(0)
+                    setSelectedAnswer(null)
+                    setIsCorrect(null)
+                    setIsTimedOut(false)
+                    setTimeLeft(15)
+                  }}
+                  className="py-3.5 px-8 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 hover:from-red-400 hover:to-yellow-400 shadow-[0_0_25px_rgba(255,69,58,0.4)] transition-all cursor-pointer"
+                >
+                  Try Again ↻
                 </button>
                 <Link
                   to="/"
