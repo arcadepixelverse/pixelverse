@@ -10,6 +10,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
+import { apiFetch } from '../lib/apiClient'
 
 export type DifficultyMode = 'easy' | 'medium' | 'extreme'
 
@@ -63,9 +64,8 @@ export function Jailbreak() {
     setGuessCount(0)
 
     try {
-      const res = await fetch('http://localhost:10000/api/games/jailbreak/start', {
+      const res = await apiFetch('/api/games/jailbreak/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ difficulty: selectedDifficulty }),
       })
 
@@ -149,9 +149,8 @@ export function Jailbreak() {
     setErrorMsg(null)
 
     try {
-      const res = await fetch('http://localhost:10000/api/games/jailbreak/turn', {
+      const res = await apiFetch('/api/games/jailbreak/turn', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           gameId: gameId,
           userMessage: trimmed,

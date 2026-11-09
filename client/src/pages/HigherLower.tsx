@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
+import { apiFetch } from '../lib/apiClient'
 
 export interface Question {
   prompt?: string
@@ -91,9 +92,8 @@ export function HigherLower() {
     }, 4000)
 
     try {
-      const response = await fetch('http://localhost:10000/api/games/higher-lower/generate', {
+      const response = await apiFetch('/api/games/higher-lower/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
       })
 
       if (!response.ok) {

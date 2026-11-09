@@ -1,5 +1,8 @@
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { GameCard } from './GameCard'
+import { useAuth } from '../context/AuthContext'
 
 // ── Game definitions ─────────────────────────────────────────────────────────
 
@@ -38,28 +41,42 @@ const GAMES = [
   },
   {
     title: 'The Vault',
-    description: 'The AI guards a secret code. Find it before time runs out.',
-    icon: '🏛️',
-    neonClass: 'neon-orange',
-    iconBg: 'rgba(255, 159, 10, 0.12)',
+    description: 'An empathetic AI sanctuary for your thoughts. Your secrets are safe here.',
+    icon: '🔒',
+    neonClass: 'neon-purple',
+    iconBg: 'rgba(255, 126, 182, 0.15)',
+    statusBadge: 'Coming Soon',
+    disabled: true,
   },
   {
-    title: 'Survival Protocol',
-    description: 'Bizarre life-or-death scenario. Pick 3 items to survive the ruthless AI judge.',
-    icon: '☣️',
+    title: 'The Wingman',
+    description: 'Roast your friends or generate the perfect icebreaker.',
+    icon: '🕶️',
     neonClass: 'neon-red',
     iconBg: 'rgba(255, 69, 58, 0.12)',
-    href: '/games/survival',
+    href: '/games/wingman',
   },
 ]
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
+  const { user, todayUsage, signOut, refreshUsage } = useAuth()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    refreshUsage()
+  }, [])
+
+  const handleSignOut = async () => {
+    await signOut()
+    navigate('/login')
+  }
+
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-6 py-5 md:px-12">
+      <header className="flex items-center justify-between px-6 py-5 md:px-12 flex-wrap gap-4">
         <div className="flex items-center gap-2.5">
           {/* Logo pixel grid */}
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -71,15 +88,41 @@ export function Dashboard() {
           <span className="text-sm font-bold tracking-[0.2em] uppercase text-white/40">PIXELVERSE</span>
         </div>
 
-        <div
-          className="text-xs font-medium tracking-wider px-3 py-1.5 rounded-full uppercase"
-          style={{
-            background: 'rgba(0, 245, 255, 0.08)',
-            border: '1px solid rgba(0, 245, 255, 0.2)',
-            color: 'rgba(0, 245, 255, 0.8)',
-          }}
-        >
-          Beta
+        <div className="flex items-center gap-3">
+          {/* Quota indicator */}
+          <div
+            className="hidden sm:flex items-center gap-2 text-xs font-mono tracking-wider px-3 py-1.5 rounded-full"
+            style={{
+              background: 'rgba(0, 245, 255, 0.08)',
+              border: '1px solid rgba(0, 245, 255, 0.2)',
+              color: todayUsage >= 10 ? '#FF375F' : 'rgba(0, 245, 255, 0.9)',
+            }}
+            title="Daily AI Call Usage (Resets at midnight UTC)"
+          >
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={{ background: todayUsage >= 10 ? '#FF375F' : '#00F5FF' }}
+            />
+            <span>QUOTA: {todayUsage}/10</span>
+          </div>
+
+          {/* User email */}
+          {user?.email && (
+            <div
+              className="text-xs font-mono tracking-wide px-3 py-1.5 rounded-full text-white/70 bg-white/5 border border-white/10 max-w-[200px] truncate"
+              title={user.email}
+            >
+              {user.email}
+            </div>
+          )}
+
+          {/* Sign Out Button */}
+          <button
+            onClick={handleSignOut}
+            className="text-xs font-bold uppercase tracking-wider px-3.5 py-1.5 rounded-full transition-all bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:border-rose-500/50 cursor-pointer"
+          >
+            Sign Out
+          </button>
         </div>
       </header>
 

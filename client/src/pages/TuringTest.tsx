@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
+import { apiFetch } from '../lib/apiClient'
 
 export interface TuringTestRound {
   question: string
@@ -206,7 +207,7 @@ export function TuringTest() {
     setIsTimedOut(false)
 
     try {
-      const res = await fetch('http://localhost:10000/api/games/turing-test/generate', {
+      const res = await apiFetch('http://localhost:10000/api/games/turing-test/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ difficulty: selectedDifficulty }),

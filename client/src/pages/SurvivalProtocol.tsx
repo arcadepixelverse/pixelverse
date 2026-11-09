@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
+import { apiFetch } from '../lib/apiClient'
 
 export interface SurvivalGameData {
   scenario: string
@@ -109,7 +110,7 @@ export function SurvivalProtocol() {
     const currentClues = gameDataRef.current?.clues || []
 
     try {
-      const res = await fetch('http://localhost:10000/api/games/survival/judge', {
+      const res = await apiFetch('http://localhost:10000/api/games/survival/judge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -204,7 +205,7 @@ export function SurvivalProtocol() {
     setErrorMsg(null)
 
     try {
-      const res = await fetch('http://localhost:10000/api/games/survival/start', {
+      const res = await apiFetch('http://localhost:10000/api/games/survival/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })

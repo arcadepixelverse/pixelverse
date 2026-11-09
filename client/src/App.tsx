@@ -5,6 +5,11 @@ import { Jailbreak } from './pages/Jailbreak'
 import { MindReader } from './pages/MindReader'
 import { TuringTest } from './pages/TuringTest'
 import { SurvivalProtocol } from './pages/SurvivalProtocol'
+import { Vault } from './pages/Vault'
+import { Wingman } from './pages/Wingman'
+import { Login } from './pages/Login'
+import { Signup } from './pages/Signup'
+import { ProtectedRoute } from './components/ProtectedRoute'
 
 function App() {
   return (
@@ -19,12 +24,75 @@ function App() {
 
       {/* Routing */}
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/games/higher-lower" element={<HigherLower />} />
-        <Route path="/games/jailbreak" element={<Jailbreak />} />
-        <Route path="/games/mind-reader" element={<MindReader />} />
-        <Route path="/games/turing-test" element={<TuringTest />} />
-        <Route path="/games/survival" element={<SurvivalProtocol />} />
+        {/* Public Routes */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+
+        {/* Protected Routes */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/higher-lower"
+          element={
+            <ProtectedRoute>
+              <HigherLower />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/jailbreak"
+          element={
+            <ProtectedRoute>
+              <Jailbreak />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/mind-reader"
+          element={
+            <ProtectedRoute>
+              <MindReader />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/turing-test"
+          element={
+            <ProtectedRoute>
+              <TuringTest />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/survival"
+          element={
+            <ProtectedRoute>
+              <SurvivalProtocol />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/vault"
+          element={
+            <ProtectedRoute>
+              <Vault />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/wingman"
+          element={
+            <ProtectedRoute>
+              <Wingman />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </BrowserRouter>
   )

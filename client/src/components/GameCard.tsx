@@ -10,6 +10,8 @@ export interface GameCardProps {
   iconBg: string
   index: number
   href?: string
+  statusBadge?: string
+  disabled?: boolean
 }
 
 export function GameCard({
@@ -20,13 +22,15 @@ export function GameCard({
   iconBg,
   index,
   href,
+  statusBadge,
+  disabled,
 }: GameCardProps) {
-  const isPlayable = Boolean(href)
+  const isPlayable = Boolean(href) && !disabled
 
   const cardContent = (
     <motion.div
       className={`glass-card ${neonClass} p-6 flex flex-col gap-4 select-none h-full ${
-        isPlayable ? 'cursor-pointer' : 'cursor-default opacity-80'
+        isPlayable ? 'cursor-pointer' : 'cursor-default opacity-50'
       }`}
       initial={{ opacity: 0, y: 32 }}
       animate={{ opacity: 1, y: 0 }}
@@ -54,17 +58,17 @@ export function GameCard({
               border: '1px solid rgba(48, 209, 88, 0.3)',
             }}
           >
-            Live
+            {statusBadge || 'Live'}
           </span>
         ) : (
           <span
-            className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full text-white/30"
+            className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-0.5 rounded-full text-white/50"
             style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+              background: 'rgba(255, 255, 255, 0.08)',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
             }}
           >
-            Soon
+            {statusBadge || 'Coming Soon'}
           </span>
         )}
       </div>

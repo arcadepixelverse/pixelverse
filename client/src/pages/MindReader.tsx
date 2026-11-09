@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
+import { apiFetch } from '../lib/apiClient'
 
 export interface HistoryItem {
   question: string
@@ -44,7 +45,7 @@ export function MindReader() {
 
     try {
       // 1. Start game session
-      const startRes = await fetch('http://localhost:10000/api/games/mind-reader/start', {
+      const startRes = await apiFetch('http://localhost:10000/api/games/mind-reader/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secretNumber: num }),
@@ -60,7 +61,7 @@ export function MindReader() {
       setGameId(newGameId)
 
       // 2. Immediately call /ask to get the very first question
-      const askRes = await fetch('http://localhost:10000/api/games/mind-reader/ask', {
+      const askRes = await apiFetch('http://localhost:10000/api/games/mind-reader/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameId: newGameId }),
@@ -114,7 +115,7 @@ export function MindReader() {
     setErrorMsg(null)
 
     try {
-      const res = await fetch('http://localhost:10000/api/games/mind-reader/ask', {
+      const res = await apiFetch('http://localhost:10000/api/games/mind-reader/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -187,7 +188,7 @@ export function MindReader() {
 
     if (gameId && !gameId.startsWith('offline-')) {
       try {
-        await fetch('http://localhost:10000/api/games/mind-reader/finish', {
+        await apiFetch('http://localhost:10000/api/games/mind-reader/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ gameId, didWin }),

@@ -2,6 +2,8 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { quotaGate } from './middleware/quotaGate';
+import { requireAuth } from './middleware/requireAuth';
+import { supabaseAdmin } from './lib/supabase';
 import { gamesRouter } from './routes/games';
 
 dotenv.config();
@@ -30,8 +32,38 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
+/** Authenticated User Profile & Daily Usage */
+app.get('/api/auth/me', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const email = req.user!.email;
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data, error } = await supabaseAdmin
+      .from('daily_usage')
+      .select('ai_calls_count')
+      .eq('user_id', userId)
+      .eq('usage_date', today)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[auth/me] Error querying daily_usage:', error);
+      return res.json({ id: userId, email, todayUsage: 0 });
+    }
+
+    return res.json({
+      id: userId,
+      email,
+      todayUsage: data?.ai_calls_count || 0,
+    });
+  } catch (err: any) {
+    console.error('[auth/me] Unexpected error:', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 /** Quota gate test route */
-app.post('/api/test-quota', quotaGate, (_req: Request, res: Response) => {
+app.post('/api/test-quota', requireAuth, quotaGate, (_req: Request, res: Response) => {
   res.json({ message: 'Success! You bypassed the quota gate.' });
 });
 

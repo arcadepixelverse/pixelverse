@@ -1011,4 +1011,172 @@ export async function judgeSurvivalAttempt(
   }
 }
 
+/**
+ * ── 10. The Vault: Empathetic "Good Bro" Friend Persona ─────────────────────
+ * Conversational companion for 2 AM talks with natural human responses,
+ * zero therapist clichés, and multimodal image analysis support.
+ */
+export async function generateVaultResponse(
+  userMessageText: string,
+  history: Array<{ role: 'user' | 'model' | 'assistant'; text: string }> = [],
+  imageBase64?: string,
+  options?: {
+    mode?: 'venting' | 'advice' | 'chatting';
+    context?: string;
+  }
+): Promise<string> {
+  const apiKey = getApiKey();
+
+  let systemInstruction = `You are a supportive, empathetic friend (like a good bro). The user is talking to you. Your goal is to listen, validate them naturally, and talk to them like a real human. CRITICAL: Do NOT use therapist clichés like 'I hear you', 'Your feelings are valid', or 'I am here for you'. React naturally. Be chill. Use casual language.`;
+
+  if (options?.context) {
+    systemInstruction += `\nAdditional user context / background: ${options.context}`;
+  }
+
+  if (options?.mode === 'venting') {
+    systemInstruction += `\nThe user is venting. Just listen, agree with how absurd or unfair their situation is, validate naturally without lecturing or unsolicited life advice.`;
+  } else if (options?.mode === 'advice') {
+    systemInstruction += `\nThe user wants advice. Give real, honest, practical advice like a wise brother without sounding preachy.`;
+  } else if (options?.mode === 'chatting') {
+    systemInstruction += `\nKeep the tone cozy, chill, and friendly. Shoot the breeze with them.`;
+  }
+
+  // Build the parts for the current user turn
+  const parts: any[] = [{ text: userMessageText }];
+  if (imageBase64) {
+    const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '').trim();
+    if (cleanBase64) {
+      parts.push({
+        inlineData: { data: cleanBase64, mimeType: 'image/jpeg' },
+      });
+    }
+  }
+
+  // Format past turns for Gemini chat history
+  const formattedHistory = history.slice(-10).map((h) => ({
+    role: h.role === 'model' || h.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: h.text }],
+  }));
+
+  const contents = [
+    ...formattedHistory,
+    {
+      role: 'user',
+      parts,
+    },
+  ];
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    if (imageBase64) {
+      return "Whoa, that picture is crazy! Definitely looks like a story behind that. What made you take it?";
+    }
+    const fallbacks = [
+      "Damn man, that sounds exhausting. What ended up happening after that?",
+      "Honestly that's wild. Can't blame you at all for feeling that way. You been dealing with that all week?",
+      "Yeah, that whole situation is messed up. Have you had a minute to just unplug tonight?",
+      "For real though. That's a lot to deal with. What's the plan for tomorrow?",
+    ];
+    return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Vault response generation timed out')), 10000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents,
+      config: {
+        systemInstruction,
+        temperature: 0.85,
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const text = (response.text || '').trim();
+    if (text) return text;
+
+    return "Man, that sounds wild. What happened next?";
+  } catch (err: any) {
+    console.warn('[Gemini] Vault response error/timeout:', err.message || err);
+    if (imageBase64) {
+      return "That picture looks wild. Tell me more about what we're looking at here.";
+    }
+    return "Man, dealing with that kind of stress at 2 AM is rough. How are you holding up right now?";
+  }
+}
+
+/**
+ * ── 11. The Wingman: Roast or Conversation Starters ─────────────────────────
+ * Generates either a brutal playful roast or 3 clever icebreakers.
+ */
+export async function generateWingmanResponse(
+  mode: 'roast' | 'convo',
+  input: string
+): Promise<{ output: string }> {
+  const apiKey = getApiKey();
+  const safeInput = String(input || '').trim();
+
+  let prompt = '';
+  if (mode === 'roast') {
+    prompt = `You are a savage but playful insult comic. The user says: '${safeInput}'. Roast them brutally but playfully in exactly 3 sentences. Do not hold back. Return strict JSON: { 'output': 'string' }`;
+  } else {
+    prompt = `You are a charismatic social genius. The user is in this situation: '${safeInput}'. Give them 3 incredibly clever, unique, and natural conversation starters they can use right now to break the ice. Format as a numbered list (1. 2. 3.). Return strict JSON: { 'output': 'string' }`;
+  }
+
+  if (!apiKey || apiKey === 'your-gemini-api-key') {
+    if (mode === 'roast') {
+      return {
+        output: `I've seen dial-up connections with better timing and self-awareness than '${safeInput}'. Even your autocorrect gave up trying to fix that disaster of a situation. But hey, at least you're consistent at making questionable life choices.`,
+      };
+    } else {
+      return {
+        output: `1. "Well, this definitely beats whatever small talk the weather was going to give us."\n2. "Quick question: on a scale of 1 to 10, how awkward are we contractually obligated to feel right now?"\n3. "If anyone asks, we planned this exact moment for dramatic effect."`,
+      };
+    }
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Wingman generation timed out')), 8000)
+    );
+
+    const generatePromise = ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.85,
+      },
+    });
+
+    const response = await Promise.race([generatePromise, timeoutPromise]);
+    const raw = (response.text || '').trim();
+    const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(clean);
+
+    if (parsed && typeof parsed.output === 'string' && parsed.output.trim()) {
+      return { output: parsed.output.trim() };
+    }
+
+    throw new Error('Invalid JSON format from Wingman generation');
+  } catch (err: any) {
+    console.warn('[Gemini] Wingman generation error/timeout:', err.message || err);
+    if (mode === 'roast') {
+      return {
+        output: `That situation is so absurd even artificial intelligence needs a moment to process the second-hand embarrassment. You managed to turn an everyday moment into an Olympic sport of awkwardness. Keep doing you, because somebody has to provide the comedic relief.`,
+      };
+    } else {
+      return {
+        output: `1. "I feel like an icebreaker is required by law here, so: favorite emergency snack?"\n2. "If this situation were a movie scene, what soundtrack would be playing right now?"\n3. "Let's skip the small talk—what's the weirdest thing that happened to you this week?"`,
+      };
+    }
+  }
+}
+
 

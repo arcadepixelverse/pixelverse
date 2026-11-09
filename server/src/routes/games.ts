@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { quotaGate } from '../middleware/quotaGate';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { requireAuth } from '../middleware/requireAuth';
+import { supabaseAdmin } from '../lib/supabase';
 import {
   generateJailbreakRole,
   generateJailbreakTurn,
@@ -13,12 +14,12 @@ import {
   generateSurvivalScenariosBatch,
   judgeSurvivalAttempt,
   SurvivalScenarioResult,
+  generateVaultResponse,
+  generateWingmanResponse,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
 
-// Fallback user ID matching the quotaGate mock user
-const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 /**
  * ── 1. The Jailbreak: Start Game ─────────────────────────────────────────────
@@ -31,10 +32,11 @@ const DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000000';
  */
 gamesRouter.post(
   ['/jailbreak/start', '/api/games/jailbreak/start'],
+  requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
-      const userId = (req as any).user?.id || DEFAULT_USER_ID;
+      const userId = req.user!.id;
       const rawDiff = (req.body?.difficulty || 'medium').toString().toLowerCase();
       const difficulty = ['easy', 'medium', 'extreme'].includes(rawDiff) ? rawDiff : 'medium';
 
@@ -101,6 +103,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/jailbreak/turn', '/api/games/jailbreak/turn'],
+  requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -360,11 +363,11 @@ gamesRouter.get(
  */
 gamesRouter.post(
   ['/mind-reader/start', '/api/games/mind-reader/start'],
+  requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
-      const rawUserId = (req as any).user?.id;
-      const userId = rawUserId && rawUserId !== DEFAULT_USER_ID ? rawUserId : null;
+      const userId = req.user!.id;
       const { secretNumber } = req.body;
 
       const num = Number(secretNumber);
@@ -418,6 +421,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/mind-reader/ask', '/api/games/mind-reader/ask'],
+  requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -625,6 +629,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/turing-test/generate', '/api/games/turing-test/generate'],
+  requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -723,6 +728,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/survival/start', '/api/games/survival/start'],
+  requireAuth,
   quotaGate,
   async (_req: Request, res: Response) => {
     try {
@@ -830,6 +836,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/survival/judge', '/api/games/survival/judge'],
+  requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -858,6 +865,102 @@ gamesRouter.post(
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
         message: err.message || 'Failed to judge survival attempt.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 10. The Vault: Empathetic AI Chat ────────────────────────────────────────
+ * POST /api/games/vault/chat
+ * Protected by quotaGate.
+ * Accepts { message, history, imageBase64, mode, context }.
+ * Invokes Gemini with Good Bro persona and multimodal vision support.
+ */
+gamesRouter.post(
+  ['/vault/chat', '/api/games/vault/chat'],
+  requireAuth,
+  quotaGate,
+  async (req: Request, res: Response) => {
+    try {
+      const { message, messages, history, overallMode, mode, manualContext, context, imageBase64 } = req.body || {};
+      console.log("Backend received image?", !!imageBase64);
+
+      let promptText = typeof message === 'string' ? message : '';
+      let rawHistory: Array<{ role: 'user' | 'model' | 'assistant'; text: string }> = Array.isArray(history) ? history : [];
+
+      if (Array.isArray(messages) && messages.length > 0) {
+        const lastItem = messages[messages.length - 1];
+        const lastText = typeof lastItem === 'string' ? lastItem : (lastItem?.text || lastItem?.content || '');
+        if (!promptText) {
+          promptText = lastText;
+        }
+        if (!history || history.length === 0) {
+          rawHistory = messages.slice(0, -1).map((m: any) => ({
+            role: (m.sender === 'ai' || m.sender === 'model' || m.role === 'model' || m.role === 'assistant') ? 'model' : 'user',
+            text: typeof m === 'string' ? m : (m.text || m.content || ''),
+          }));
+        }
+      }
+
+      const activeMode = overallMode || mode;
+      const activeContext = manualContext || context;
+
+      if (!promptText && !imageBase64) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'A message or image is required.',
+        });
+      }
+
+      const reply = await generateVaultResponse(
+        promptText || 'Check out this image.',
+        rawHistory,
+        imageBase64,
+        { mode: activeMode, context: activeContext }
+      );
+
+      return res.json({ reply });
+    } catch (err: any) {
+      console.error('[vault/chat] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to generate Vault response.',
+      });
+    }
+  }
+);
+
+/**
+ * ── 11. The Wingman: Generate Roast or Convo Starters ─────────────────────────
+ * POST /api/games/wingman/generate
+ * Protected by quotaGate.
+ * Accepts { mode: 'roast' | 'convo', input: string }.
+ */
+gamesRouter.post(
+  ['/wingman/generate', '/api/games/wingman/generate'],
+  requireAuth,
+  quotaGate,
+  async (req: Request, res: Response) => {
+    try {
+      const { mode, input } = req.body || {};
+      const safeMode: 'roast' | 'convo' = mode === 'convo' ? 'convo' : 'roast';
+      const safeInput = typeof input === 'string' ? input.trim() : '';
+
+      if (!safeInput) {
+        return res.status(400).json({
+          error: 'INVALID_REQUEST',
+          message: 'An input string is required.',
+        });
+      }
+
+      const result = await generateWingmanResponse(safeMode, safeInput);
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[wingman/generate] Error:', err);
+      return res.status(500).json({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to generate Wingman response.',
       });
     }
   }
