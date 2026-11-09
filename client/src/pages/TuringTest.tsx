@@ -292,6 +292,17 @@ export function TuringTest() {
     }
   }
 
+  // Submit final score to leaderboard when game ends (reveal = won, gameover = eliminated)
+  useEffect(() => {
+    if (gameState !== 'reveal' && gameState !== 'gameover') return
+    if (score <= 0) return
+    apiFetch('http://localhost:10000/api/leaderboard/turing_test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ score }),
+    }).catch((err) => console.warn('[TuringTest] Score submit failed:', err))
+  }, [gameState]) // only fire when gameState changes to terminal state
+
   // Score feedback evaluation
   const getScoreVerdict = (finalScore: number, total: number) => {
     const ratio = finalScore / total

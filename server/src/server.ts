@@ -5,6 +5,7 @@ import { quotaGate } from './middleware/quotaGate';
 import { requireAuth } from './middleware/requireAuth';
 import { supabaseAdmin } from './lib/supabase';
 import { gamesRouter } from './routes/games';
+import { leaderboardRouter } from './routes/leaderboard';
 
 dotenv.config();
 
@@ -69,6 +70,9 @@ app.post('/api/test-quota', requireAuth, quotaGate, (_req: Request, res: Respons
 
 /** Games routes (Jailbreak, Higher-Lower, etc.) */
 app.use('/api/games', gamesRouter);
+
+/** Leaderboard routes */
+app.use('/api/leaderboard', leaderboardRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

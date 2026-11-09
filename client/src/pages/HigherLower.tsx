@@ -160,6 +160,16 @@ export function HigherLower() {
     return () => clearInterval(interval)
   }, [gameState, selectedCard, timeLeft])
 
+  // Submit final score to leaderboard when game ends
+  useEffect(() => {
+    if (gameState !== 'gameover' || score <= 0) return
+    apiFetch('http://localhost:10000/api/leaderboard/higher_lower', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ score }),
+    }).catch((err) => console.warn('[HigherLower] Score submit failed:', err))
+  }, [gameState]) // only fire when gameState changes to gameover
+
   const handleCardClick = (choice: 'A' | 'B') => {
     if (gameState !== 'playing' || selectedCard !== null) return
 

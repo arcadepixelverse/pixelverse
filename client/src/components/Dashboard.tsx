@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { GameCard } from './GameCard'
 import { useAuth } from '../context/AuthContext'
+import { Leaderboard } from './Leaderboard'
 
 // ── Game definitions ─────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ const GAMES = [
 export function Dashboard() {
   const { user, todayUsage, signOut, refreshUsage } = useAuth()
   const navigate = useNavigate()
+  const [leaderboardOpen, setLeaderboardOpen] = useState(false)
 
   useEffect(() => {
     refreshUsage()
@@ -75,6 +77,7 @@ export function Dashboard() {
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
+      <Leaderboard isOpen={leaderboardOpen} onClose={() => setLeaderboardOpen(false)} />
       {/* ── Header ── */}
       <header className="flex items-center justify-between px-6 py-5 md:px-12 flex-wrap gap-4">
         <div className="flex items-center gap-2.5">
@@ -105,6 +108,20 @@ export function Dashboard() {
             />
             <span>QUOTA: {todayUsage}/10</span>
           </div>
+
+          {/* Leaderboard button */}
+          <button
+            onClick={() => setLeaderboardOpen(true)}
+            className="text-xs font-bold uppercase tracking-wider px-3.5 py-1.5 rounded-full transition-all cursor-pointer"
+            style={{
+              background: 'rgba(255, 215, 0, 0.08)',
+              border: '1px solid rgba(255, 215, 0, 0.25)',
+              color: 'rgba(255, 215, 0, 0.85)',
+            }}
+            title="Global Leaderboard"
+          >
+            🏆 Leaderboard
+          </button>
 
           {/* User email */}
           {user?.email && (

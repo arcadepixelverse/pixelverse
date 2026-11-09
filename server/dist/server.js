@@ -10,6 +10,7 @@ const quotaGate_1 = require("./middleware/quotaGate");
 const requireAuth_1 = require("./middleware/requireAuth");
 const supabase_1 = require("./lib/supabase");
 const games_1 = require("./routes/games");
+const leaderboard_1 = require("./routes/leaderboard");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 10000;
@@ -63,6 +64,8 @@ app.post('/api/test-quota', requireAuth_1.requireAuth, quotaGate_1.quotaGate, (_
 });
 /** Games routes (Jailbreak, Higher-Lower, etc.) */
 app.use('/api/games', games_1.gamesRouter);
+/** Leaderboard routes */
+app.use('/api/leaderboard', leaderboard_1.leaderboardRouter);
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {
     res.status(404).json({ error: 'Route not found' });
