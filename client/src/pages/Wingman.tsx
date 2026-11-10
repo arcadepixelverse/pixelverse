@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 
 export type WingmanMode = 'roast' | 'convo'
 export type WingmanState = 'idle' | 'loading' | 'reveal'
@@ -127,7 +127,13 @@ export function Wingman() {
       })
 
       if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`)
+        const errMsg = await getApiErrorMessage(res, `Server returned status ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          setGameState('idle')
+          return
+        }
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
@@ -138,6 +144,11 @@ export function Wingman() {
         throw new Error('Invalid response structure from server.')
       }
     } catch (err: any) {
+      if (err.message === SERVER_OVERLOAD_MESSAGE) {
+        setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+        setGameState('idle')
+        return
+      }
       console.warn('[Wingman] API request failed, using emergency fallback:', err)
       if (mode === 'roast') {
         setResult(

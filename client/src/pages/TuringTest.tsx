@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 
 export interface TuringTestRound {
   question: string
@@ -193,9 +193,13 @@ export function TuringTest() {
   const [hasScoredCurrentRound, setHasScoredCurrentRound] = useState<boolean>(false)
   const [timeLeft, setTimeLeft] = useState<number>(15)
   const [isTimedOut, setIsTimedOut] = useState<boolean>(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const hasSubmittedScore = useRef(false)
 
   // Fetch rounds for chosen difficulty
   const fetchRounds = async (selectedDifficulty: DifficultyMode = difficulty) => {
+    hasSubmittedScore.current = false
+    setErrorMsg(null)
     setDifficulty(selectedDifficulty)
     setGameState('loading')
     setCurrentRound(0)
@@ -214,7 +218,13 @@ export function TuringTest() {
       })
 
       if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`)
+        const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          setGameState('level_select')
+          return
+        }
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
@@ -259,6 +269,19 @@ export function TuringTest() {
     return () => clearInterval(interval)
   }, [gameState, selectedAnswer, timeLeft, currentRoundData])
 
+  // Quietly submit score to leaderboard when game ends (reveal or gameover)
+  useEffect(() => {
+    if ((gameState === 'reveal' || gameState === 'gameover') && score > 0 && !hasSubmittedScore.current) {
+      hasSubmittedScore.current = true
+      apiFetch('/api/leaderboard/turing_test', {
+        method: 'POST',
+        body: JSON.stringify({ score }),
+      }).catch((err) => {
+        console.warn('[TuringTest] Quiet leaderboard submit failed:', err)
+      })
+    }
+  }, [gameState, score])
+
   // Handle user selecting an answer card
   const handleSelectAnswer = (option: 'A' | 'B') => {
     if (selectedAnswer !== null || !currentRoundData) return
@@ -291,17 +314,6 @@ export function TuringTest() {
       setGameState('reveal')
     }
   }
-
-  // Submit final score to leaderboard when game ends (reveal = won, gameover = eliminated)
-  useEffect(() => {
-    if (gameState !== 'reveal' && gameState !== 'gameover') return
-    if (score <= 0) return
-    apiFetch('http://localhost:10000/api/leaderboard/turing_test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ score }),
-    }).catch((err) => console.warn('[TuringTest] Score submit failed:', err))
-  }, [gameState]) // only fire when gameState changes to terminal state
 
   // Score feedback evaluation
   const getScoreVerdict = (finalScore: number, total: number) => {
@@ -489,6 +501,12 @@ export function TuringTest() {
                 <p className="text-sm text-white/50 max-w-lg mx-auto">
                   Can you tell carbon-based consciousness from synthetic intelligence? Choose your interrogation tier.
                 </p>
+                {errorMsg && (
+                  <div className="mt-4 px-4 py-3 rounded-xl bg-red-500/20 border border-red-500/40 text-red-200 text-sm font-mono flex items-center justify-center gap-2">
+                    <span>⚠️</span>
+                    <span>{errorMsg}</span>
+                  </div>
+                )}
               </div>
 
               {/* 3 Difficulty Cards Grid */}

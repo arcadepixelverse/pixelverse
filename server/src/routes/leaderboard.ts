@@ -4,175 +4,203 @@ import { supabaseAdmin } from '../lib/supabase';
 
 export const leaderboardRouter = Router();
 
-// ── In-memory cache ───────────────────────────────────────────────────────────
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-interface CacheEntry {
-  data: LeaderboardEntry[];
-  expiresAt: number;
-}
-
-interface LeaderboardEntry {
+export interface LeaderboardEntry {
   rank: number;
   email_prefix: string;
   score: number;
 }
 
-const cache = new Map<string, CacheEntry>();
-
-function getCached(gameId: string): LeaderboardEntry[] | null {
-  const entry = cache.get(gameId);
-  if (entry && Date.now() < entry.expiresAt) {
-    return entry.data;
-  }
-  cache.delete(gameId);
-  return null;
+interface CachedLeaderboard {
+  timestamp: number;
+  data: LeaderboardEntry[];
 }
 
-function setCache(gameId: string, data: LeaderboardEntry[]) {
-  cache.set(gameId, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-}
+// In-memory cache for leaderboard queries: gameId -> { timestamp, data }
+export const leaderboardCache = new Map<string, CachedLeaderboard>();
+export const LEADERBOARD_CACHE_TTL_MS = 300_000; // 5 minutes
 
-function invalidateCache(gameId: string) {
-  cache.delete(gameId);
-}
+// In-memory cache for user email prefixes to prevent redundant auth lookups
+export const userEmailCache = new Map<string, string>();
 
-// ── GET /api/leaderboard/:gameId ──────────────────────────────────────────────
+/**
+ * GET /api/leaderboard/:gameId
+ * Returns top 10 scores for a game, cached in memory for 5 minutes.
+ */
 leaderboardRouter.get(
   '/:gameId',
   requireAuth,
   async (req: Request, res: Response) => {
-    const { gameId } = req.params;
-
-    // 1. Check cache
-    const cached = getCached(gameId);
-    if (cached) {
-      console.log('[leaderboard] Cache HIT for ' + gameId);
-      return res.json({ entries: cached, cached: true });
-    }
-
-    console.log('[leaderboard] Cache MISS for ' + gameId + ' — querying Supabase');
-
     try {
-      // 2. Query top 10 scores
-      const { data: scores, error } = await supabaseAdmin
+      const { gameId } = req.params;
+      if (!gameId) {
+        return res.status(400).json({ error: 'gameId parameter is required' });
+      }
+
+      // Check cache
+      const cached = leaderboardCache.get(gameId);
+      const now = Date.now();
+      if (cached && now - cached.timestamp < LEADERBOARD_CACHE_TTL_MS) {
+        console.log(`[leaderboard] Cache HIT for ${gameId}`);
+        return res.json(cached.data);
+      }
+
+      console.log(`[leaderboard] Cache MISS for ${gameId}, querying Supabase...`);
+
+      // Query top 10 scores for this game
+      const { data, error } = await supabaseAdmin
         .from('game_scores')
-        .select('user_id, score, created_at')
+        .select('score, user_id, created_at')
         .eq('game_id', gameId)
         .order('score', { ascending: false })
         .limit(10);
 
       if (error) {
-        console.error('[leaderboard] DB error:', error);
-        return res.status(500).json({ error: 'db_error', message: error.message });
+        console.error(`[leaderboard] Supabase query error for ${gameId}:`, error);
+        return res.status(500).json({ error: 'failed_to_fetch_leaderboard' });
       }
 
-      if (!scores || scores.length === 0) {
-        const empty: LeaderboardEntry[] = [];
-        setCache(gameId, empty);
-        return res.json({ entries: empty, cached: false });
-      }
+      // Format top scores with email prefix
+      const entries: LeaderboardEntry[] = await Promise.all(
+        (data || []).map(async (row, index) => {
+          let emailPrefix = 'Player';
+          const userId = row.user_id;
 
-      // 3. Fetch email for each unique user_id via admin API
-      const userIds = [...new Set(scores.map((s) => s.user_id as string))];
-      const emailMap: Record<string, string> = {};
-
-      await Promise.all(
-        userIds.map(async (uid) => {
-          try {
-            const { data: userData } = await supabaseAdmin.auth.admin.getUserById(uid);
-            if (userData?.user?.email) {
-              emailMap[uid] = userData.user.email;
+          if (userId) {
+            if (userEmailCache.has(userId)) {
+              emailPrefix = userEmailCache.get(userId)!;
+            } else {
+              try {
+                const { data: userData } = await supabaseAdmin.auth.admin.getUserById(userId);
+                if (userData?.user?.email) {
+                  emailPrefix = userData.user.email.split('@')[0];
+                  userEmailCache.set(userId, emailPrefix);
+                } else {
+                  emailPrefix = `pilot_${userId.slice(0, 5)}`;
+                }
+              } catch (err) {
+                console.warn(`[leaderboard] Failed to fetch email for user ${userId}:`, err);
+                emailPrefix = `pilot_${userId.slice(0, 5)}`;
+              }
             }
-          } catch {
-            // ignore individual lookup failures
           }
+
+          return {
+            rank: index + 1,
+            email_prefix: emailPrefix,
+            score: Number(row.score) || 0,
+          };
         })
       );
 
-      // 4. Build ranked response
-      const entries: LeaderboardEntry[] = scores.map((s, i) => {
-        const email = emailMap[s.user_id as string] || '';
-        const email_prefix = email
-          ? email.split('@')[0]
-          : (s.user_id as string).slice(0, 8);
-        return { rank: i + 1, email_prefix, score: s.score as number };
+      // Save to in-memory cache
+      leaderboardCache.set(gameId, {
+        timestamp: now,
+        data: entries,
       });
 
-      setCache(gameId, entries);
-      return res.json({ entries, cached: false });
+      return res.json(entries);
     } catch (err: any) {
-      console.error('[leaderboard] Unexpected error:', err);
+      console.error('[leaderboard] Unexpected error in GET:', err);
       return res.status(500).json({ error: 'internal_error' });
     }
   }
 );
 
-// ── POST /api/leaderboard/:gameId ─────────────────────────────────────────────
+/**
+ * POST /api/leaderboard/:gameId
+ * Submits a score for the authenticated user.
+ * If new score > existing score for that game, update it. If lower, do nothing.
+ * Invalidates the in-memory cache for gameId.
+ */
 leaderboardRouter.post(
   '/:gameId',
   requireAuth,
   async (req: Request, res: Response) => {
-    const { gameId } = req.params;
-    const userId = req.user!.id;
-    const { score } = req.body;
-
-    if (typeof score !== 'number' || score < 0 || !Number.isInteger(score)) {
-      return res.status(400).json({
-        error: 'invalid_score',
-        message: 'score must be a non-negative integer',
-      });
-    }
-
     try {
-      // 1. Check if user already has a score for this game
-      const { data: existing, error: fetchError } = await supabaseAdmin
+      const { gameId } = req.params;
+      const { score } = req.body;
+
+      if (!gameId) {
+        return res.status(400).json({ error: 'gameId parameter is required' });
+      }
+
+      const numScore = Number(score);
+      if (typeof score === 'undefined' || isNaN(numScore) || numScore < 0) {
+        return res.status(400).json({ error: 'score must be a non-negative number' });
+      }
+
+      const userId = req.user!.id;
+      const userEmail = req.user!.email;
+      if (userEmail) {
+        userEmailCache.set(userId, userEmail.split('@')[0]);
+      }
+
+      // Check if user already has a score record for this game
+      const { data: existingRows, error: fetchError } = await supabaseAdmin
         .from('game_scores')
         .select('id, score')
         .eq('user_id', userId)
         .eq('game_id', gameId)
-        .maybeSingle();
+        .order('score', { ascending: false })
+        .limit(1);
 
       if (fetchError) {
-        console.error('[leaderboard] fetch error:', fetchError);
-        return res.status(500).json({ error: 'db_error' });
+        console.error(`[leaderboard] Error checking existing score:`, fetchError);
+        return res.status(500).json({ error: 'failed_to_check_existing_score' });
       }
 
-      if (existing) {
-        // Only update if new score is strictly higher
-        if (score <= (existing.score as number)) {
-          return res.json({
-            updated: false,
-            message: 'Existing score is equal or higher — not updated.',
-          });
-        }
-        const { error: updateError } = await supabaseAdmin
-          .from('game_scores')
-          .update({ score, created_at: new Date().toISOString() })
-          .eq('id', existing.id);
+      let updated = false;
 
-        if (updateError) {
-          console.error('[leaderboard] update error:', updateError);
-          return res.status(500).json({ error: 'db_error' });
+      if (existingRows && existingRows.length > 0) {
+        const existing = existingRows[0];
+        if (numScore > Number(existing.score)) {
+          const { error: updateError } = await supabaseAdmin
+            .from('game_scores')
+            .update({
+              score: numScore,
+              created_at: new Date().toISOString(),
+            })
+            .eq('id', existing.id);
+
+          if (updateError) {
+            console.error(`[leaderboard] Error updating score:`, updateError);
+            return res.status(500).json({ error: 'failed_to_update_score' });
+          }
+          updated = true;
+          console.log(`[leaderboard] Updated high score for user ${userId} in ${gameId}: ${numScore} (was ${existing.score})`);
+        } else {
+          console.log(`[leaderboard] Score ${numScore} <= existing ${existing.score} for ${userId} in ${gameId}. No update.`);
         }
       } else {
         // Insert new record
         const { error: insertError } = await supabaseAdmin
           .from('game_scores')
-          .insert({ user_id: userId, game_id: gameId, score });
+          .insert({
+            user_id: userId,
+            game_id: gameId,
+            score: numScore,
+            created_at: new Date().toISOString(),
+          });
 
         if (insertError) {
-          console.error('[leaderboard] insert error:', insertError);
-          return res.status(500).json({ error: 'db_error' });
+          console.error(`[leaderboard] Error inserting score:`, insertError);
+          return res.status(500).json({ error: 'failed_to_insert_score' });
         }
+        updated = true;
+        console.log(`[leaderboard] Inserted new score for user ${userId} in ${gameId}: ${numScore}`);
       }
 
-      // 2. Invalidate cache so next GET is fresh
-      invalidateCache(gameId);
-      console.log('[leaderboard] Score submitted for ' + gameId + ' by ' + userId + ': ' + score);
-      return res.json({ updated: true });
+      // Invalidate cache for this gameId so next GET fetches fresh data
+      leaderboardCache.delete(gameId);
+      console.log(`[leaderboard] Cache invalidated for ${gameId}`);
+
+      return res.json({
+        success: true,
+        updated,
+        score: numScore,
+      });
     } catch (err: any) {
-      console.error('[leaderboard] Unexpected error:', err);
+      console.error('[leaderboard] Unexpected error in POST:', err);
       return res.status(500).json({ error: 'internal_error' });
     }
   }

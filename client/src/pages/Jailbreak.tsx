@@ -10,7 +10,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 
 export type DifficultyMode = 'easy' | 'medium' | 'extreme'
 
@@ -70,11 +70,17 @@ export function Jailbreak() {
       })
 
       if (!res.ok) {
+        const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          setGameState('level_select')
+          return
+        }
         const errJson = await res.json().catch(() => ({}))
         if (res.status === 429) {
           throw new Error(errJson.message || 'Daily limit reached. Come back tomorrow!')
         }
-        throw new Error(errJson.message || `Server returned ${res.status}`)
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
@@ -158,11 +164,17 @@ export function Jailbreak() {
       })
 
       if (!res.ok) {
+        const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          setIsSending(false)
+          return
+        }
         const errJson = await res.json().catch(() => ({}))
         if (res.status === 429) {
           throw new Error(errJson.message || 'Daily limit reached.')
         }
-        throw new Error(errJson.message || `Server returned ${res.status}`)
+        throw new Error(errMsg)
       }
 
       const data = await res.json()

@@ -64,7 +64,7 @@ app.post('/api/test-quota', requireAuth_1.requireAuth, quotaGate_1.quotaGate, (_
 });
 /** Games routes (Jailbreak, Higher-Lower, etc.) */
 app.use('/api/games', games_1.gamesRouter);
-/** Leaderboard routes */
+/** Leaderboards */
 app.use('/api/leaderboard', leaderboard_1.leaderboardRouter);
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {

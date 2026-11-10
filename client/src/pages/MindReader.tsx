@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 
 export interface HistoryItem {
   question: string
@@ -52,8 +52,13 @@ export function MindReader() {
       })
 
       if (!startRes.ok) {
+        const errMsg = await getApiErrorMessage(startRes, `Server returned ${startRes.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          return
+        }
         const errJson = await startRes.json().catch(() => ({}))
-        throw new Error(errJson.message || `Server returned ${startRes.status}`)
+        throw new Error(errJson.message || errMsg)
       }
 
       const startData = await startRes.json()
@@ -68,8 +73,13 @@ export function MindReader() {
       })
 
       if (!askRes.ok) {
+        const errMsg = await getApiErrorMessage(askRes, `Failed to receive initial question (${askRes.status})`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          return
+        }
         const errJson = await askRes.json().catch(() => ({}))
-        throw new Error(errJson.message || `Failed to receive initial question (${askRes.status})`)
+        throw new Error(errJson.message || errMsg)
       }
 
       const askData = await askRes.json()
@@ -125,8 +135,13 @@ export function MindReader() {
       })
 
       if (!res.ok) {
+        const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          return
+        }
         const errJson = await res.json().catch(() => ({}))
-        throw new Error(errJson.message || `Server returned ${res.status}`)
+        throw new Error(errJson.message || errMsg)
       }
 
       const data = await res.json()
@@ -453,6 +468,12 @@ export function MindReader() {
                   />
                 </div>
               </div>
+
+              {errorMsg && (
+                <div className="w-full px-4 py-2.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-200 text-xs font-mono text-center">
+                  ⚠️ {errorMsg}
+                </div>
+              )}
 
               {/* Massive Satisfying YES / NO Buttons */}
               <div className="w-full grid grid-cols-2 gap-4 sm:gap-6">

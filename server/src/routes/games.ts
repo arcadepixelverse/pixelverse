@@ -16,9 +16,24 @@ import {
   SurvivalScenarioResult,
   generateVaultResponse,
   generateWingmanResponse,
+  generateAIText,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
+
+function handleGameError(res: Response, routeName: string, err: any, defaultMsg: string) {
+  console.error(`[${routeName}] Error:`, err);
+  if (err?.message === 'ALL_AI_PROVIDERS_FAILED' || err?.message?.includes('ALL_AI_PROVIDERS_FAILED')) {
+    return res.status(500).json({
+      error: 'ALL_AI_PROVIDERS_FAILED',
+      message: 'Servers are under heavy load. Please try again in a minute.',
+    });
+  }
+  return res.status(500).json({
+    error: 'INTERNAL_SERVER_ERROR',
+    message: err?.message || defaultMsg,
+  });
+}
 
 
 /**
@@ -85,11 +100,7 @@ gamesRouter.post(
         difficulty,
       });
     } catch (err: any) {
-      console.error('[jailbreak/start] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to start jailbreak game.',
-      });
+      return handleGameError(res, 'jailbreak/start', err, 'Failed to start jailbreak game.');
     }
   }
 );
@@ -238,11 +249,7 @@ gamesRouter.post(
         guessCount: currentGuesses,
       });
     } catch (err: any) {
-      console.error('[jailbreak/turn] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'An error occurred during turn processing.',
-      });
+      return handleGameError(res, 'jailbreak/turn', err, 'An error occurred during turn processing.');
     }
   }
 );
@@ -339,9 +346,16 @@ const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
 
     return res.json(formatted);
   } catch (err: any) {
+    if (err?.message === 'ALL_AI_PROVIDERS_FAILED') {
+      return handleGameError(res, 'higher-lower/generate', err, 'Failed to generate questions.');
+    }
     console.error('[higher-lower/generate] Error in question cache pipeline:', err);
-    const fallback = await generateHigherLowerQuestions(10);
-    return res.json(fallback.slice(0, 10));
+    try {
+      const fallback = await generateHigherLowerQuestions(10);
+      return res.json(fallback.slice(0, 10));
+    } catch (fallbackErr: any) {
+      return handleGameError(res, 'higher-lower/generate', fallbackErr, 'Failed to generate questions.');
+    }
   }
 };
 
@@ -403,11 +417,7 @@ gamesRouter.post(
         gameId: data.id,
       });
     } catch (err: any) {
-      console.error('[mind-reader/start] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to start Mind Reader game.',
-      });
+      return handleGameError(res, 'mind-reader/start', err, 'Failed to start Mind Reader game.');
     }
   }
 );
@@ -557,11 +567,7 @@ gamesRouter.post(
         currentMax: max_guess,
       });
     } catch (err: any) {
-      console.error('[mind-reader/ask] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'An error occurred during Mind Reader step.',
-      });
+      return handleGameError(res, 'mind-reader/ask', err, 'An error occurred during Mind Reader step.');
     }
   }
 );
@@ -708,11 +714,7 @@ gamesRouter.post(
       const rounds = formatAndShuffleRounds(questions);
       return res.json(rounds);
     } catch (err: any) {
-      console.error('[turing-test/generate] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to generate Turing Test rounds.',
-      });
+      return handleGameError(res, 'turing-test/generate', err, 'Failed to generate Turing Test rounds.');
     }
   }
 );
@@ -818,11 +820,7 @@ gamesRouter.post(
 
       return res.json(result);
     } catch (err: any) {
-      console.error('[survival/start] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to start survival scenario.',
-      });
+      return handleGameError(res, 'survival/start', err, 'Failed to start survival scenario.');
     }
   }
 );
@@ -861,11 +859,7 @@ gamesRouter.post(
       const result = await judgeSurvivalAttempt(scenario, rawClues, rawInput);
       return res.json(result);
     } catch (err: any) {
-      console.error('[survival/judge] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to judge survival attempt.',
-      });
+      return handleGameError(res, 'survival/judge', err, 'Failed to judge survival attempt.');
     }
   }
 );
@@ -922,11 +916,7 @@ gamesRouter.post(
 
       return res.json({ reply });
     } catch (err: any) {
-      console.error('[vault/chat] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to generate Vault response.',
-      });
+      return handleGameError(res, 'vault/chat', err, 'Failed to generate Vault response.');
     }
   }
 );
@@ -957,11 +947,7 @@ gamesRouter.post(
       const result = await generateWingmanResponse(safeMode, safeInput);
       return res.json(result);
     } catch (err: any) {
-      console.error('[wingman/generate] Error:', err);
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to generate Wingman response.',
-      });
+      return handleGameError(res, 'wingman/generate', err, 'Failed to generate Wingman response.');
     }
   }
 );

@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 
 export interface Question {
   prompt?: string
@@ -64,9 +64,11 @@ export function HigherLower() {
   const [explanation, setExplanation] = useState<string>('')
   const [timeLeft, setTimeLeft] = useState<number>(10)
   const [isTimeExpired, setIsTimeExpired] = useState<boolean>(false)
+  const hasSubmittedScore = useRef(false)
 
   // Fetch 10 questions from the backend API with a 4-second safety threshold
   const fetchQuestions = useCallback(async () => {
+    hasSubmittedScore.current = false
     setGameState('loading')
     setFeedback('')
     setSelectedCard(null)
@@ -97,7 +99,16 @@ export function HigherLower() {
       })
 
       if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}`)
+        const errMsg = await getApiErrorMessage(response, `Server returned HTTP ${response.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          clearTimeout(timer)
+          hasHandled = true
+          setExplanation(SERVER_OVERLOAD_MESSAGE)
+          setFeedback(SERVER_OVERLOAD_MESSAGE)
+          setGameState('gameover')
+          return
+        }
+        throw new Error(errMsg)
       }
 
       const data = await response.json()
@@ -160,15 +171,18 @@ export function HigherLower() {
     return () => clearInterval(interval)
   }, [gameState, selectedCard, timeLeft])
 
-  // Submit final score to leaderboard when game ends
+  // Quietly submit score to leaderboard when game ends
   useEffect(() => {
-    if (gameState !== 'gameover' || score <= 0) return
-    apiFetch('http://localhost:10000/api/leaderboard/higher_lower', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ score }),
-    }).catch((err) => console.warn('[HigherLower] Score submit failed:', err))
-  }, [gameState]) // only fire when gameState changes to gameover
+    if (gameState === 'gameover' && score > 0 && !hasSubmittedScore.current) {
+      hasSubmittedScore.current = true
+      apiFetch('/api/leaderboard/higher_lower', {
+        method: 'POST',
+        body: JSON.stringify({ score }),
+      }).catch((err) => {
+        console.warn('[HigherLower] Quiet leaderboard submit failed:', err)
+      })
+    }
+  }, [gameState, score])
 
   const handleCardClick = (choice: 'A' | 'B') => {
     if (gameState !== 'playing' || selectedCard !== null) return

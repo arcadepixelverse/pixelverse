@@ -1,322 +1,265 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '../lib/apiClient'
+import { LoadingOrb } from './LoadingOrb'
 
-type GameTab = 'higher_lower' | 'turing_test'
-
-interface LeaderboardEntry {
+export interface LeaderboardEntry {
   rank: number
   email_prefix: string
   score: number
 }
+
+export type LeaderboardGame = 'higher_lower' | 'turing_test'
 
 interface LeaderboardProps {
   isOpen: boolean
   onClose: () => void
 }
 
-const TABS: { id: GameTab; label: string; icon: string; color: string; borderColor: string }[] = [
-  {
-    id: 'higher_lower',
-    label: 'Higher / Lower',
-    icon: '📈',
-    color: 'rgba(48, 209, 88, 0.9)',
-    borderColor: 'rgba(48, 209, 88, 0.4)',
-  },
-  {
-    id: 'turing_test',
-    label: 'Turing Test',
-    icon: '🤖',
-    color: 'rgba(0, 245, 255, 0.9)',
-    borderColor: 'rgba(0, 245, 255, 0.4)',
-  },
+const TABS: { id: LeaderboardGame; label: string; icon: string }[] = [
+  { id: 'higher_lower', label: 'Higher / Lower', icon: '📈' },
+  { id: 'turing_test', label: 'Turing Test', icon: '🤖' },
 ]
 
-const RANK_BADGES: Record<number, { icon: string; color: string }> = {
-  1: { icon: '🥇', color: '#FFD700' },
-  2: { icon: '🥈', color: '#C0C0C0' },
-  3: { icon: '🥉', color: '#CD7F32' },
-}
-
 export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
-  const [activeTab, setActiveTab] = useState<GameTab>('higher_lower')
-  const [entries, setEntries] = useState<Record<GameTab, LeaderboardEntry[] | null>>({
-    higher_lower: null,
-    turing_test: null,
-  })
-  const [loading, setLoading] = useState<Record<GameTab, boolean>>({
-    higher_lower: false,
-    turing_test: false,
-  })
-  const [isCached, setIsCached] = useState<Record<GameTab, boolean>>({
-    higher_lower: false,
-    turing_test: false,
-  })
-  const [error, setError] = useState<Record<GameTab, string | null>>({
-    higher_lower: null,
-    turing_test: null,
-  })
+  const [activeTab, setActiveTab] = useState<LeaderboardGame>('higher_lower')
+  const [scores, setScores] = useState<LeaderboardEntry[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchLeaderboard = useCallback(
-    async (gameId: GameTab) => {
-      if (entries[gameId] !== null) return // already fetched
-      setLoading((prev) => ({ ...prev, [gameId]: true }))
-      setError((prev) => ({ ...prev, [gameId]: null }))
-      try {
-        const res = await apiFetch(`http://localhost:10000/api/leaderboard/${gameId}`)
-        if (!res.ok) throw new Error(`Server returned ${res.status}`)
-        const data = await res.json()
-        setEntries((prev) => ({ ...prev, [gameId]: data.entries || [] }))
-        setIsCached((prev) => ({ ...prev, [gameId]: !!data.cached }))
-      } catch (err: any) {
-        setError((prev) => ({ ...prev, [gameId]: 'Failed to load leaderboard.' }))
-      } finally {
-        setLoading((prev) => ({ ...prev, [gameId]: false }))
-      }
-    },
-    [entries]
-  )
-
-  // Fetch the active tab when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      fetchLeaderboard(activeTab)
-    }
-  }, [isOpen, activeTab, fetchLeaderboard])
-
-  // Close on Escape
+  // Fetch only when modal is open and on activeTab change
   useEffect(() => {
     if (!isOpen) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [isOpen, onClose])
 
-  const currentTab = TABS.find((t) => t.id === activeTab)!
-  const currentEntries = entries[activeTab]
-  const isLoading = loading[activeTab]
-  const currentError = error[activeTab]
-  const cached = isCached[activeTab]
+    let isMounted = true
+    const fetchScores = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await apiFetch(`/api/leaderboard/${activeTab}`)
+        if (!res.ok) {
+          throw new Error(`Server returned HTTP ${res.status}`)
+        }
+        const data = await res.json()
+        if (isMounted) {
+          setScores(Array.isArray(data) ? data : [])
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          console.warn('[Leaderboard] Fetch error:', err)
+          setError(err?.message || 'Failed to fetch leaderboard')
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    fetchScores()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isOpen, activeTab])
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Backdrop */}
           <motion.div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/75 backdrop-blur-md"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
 
-          {/* Panel */}
+          {/* Modal Container */}
           <motion.div
-            className="fixed inset-y-0 right-0 z-50 w-full max-w-sm flex flex-col"
-            style={{
-              background: 'rgba(10, 10, 20, 0.92)',
-              borderLeft: '1px solid rgba(255,255,255,0.08)',
-              backdropFilter: 'blur(24px)',
-            }}
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+            role="dialog"
+            aria-modal="true"
+            className="relative w-full max-w-lg rounded-2xl overflow-hidden border border-cyan-500/30 bg-[#0c0d14]/90 backdrop-blur-2xl shadow-[0_0_50px_rgba(0,245,255,0.18)] z-10 flex flex-col max-h-[85vh]"
+            initial={{ opacity: 0, scale: 0.94, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.94, y: 16 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           >
             {/* Header */}
-            <div
-              className="flex items-center justify-between px-5 py-4 border-b"
-              style={{ borderColor: 'rgba(255,255,255,0.07)' }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🏆</span>
+            <div className="px-6 pt-6 pb-4 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-xl shadow-[0_0_15px_rgba(0,245,255,0.2)]">
+                  🏆
+                </div>
                 <div>
-                  <h2 className="text-sm font-black uppercase tracking-[0.2em] text-white">
-                    Leaderboard
+                  <h2 className="text-lg font-black tracking-wider uppercase text-white flex items-center gap-2">
+                    Global Hall of Fame
                   </h2>
-                  <p className="text-[10px] uppercase tracking-wider text-white/40 font-mono">
-                    Global Top 10
-                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-[10px] font-mono tracking-widest uppercase text-white/50">
+                      Cached for 5m • Realtime Upserts
+                    </span>
+                  </div>
                 </div>
               </div>
+
               <button
+                type="button"
                 onClick={onClose}
-                className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all cursor-pointer text-lg"
+                className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white flex items-center justify-center text-sm transition-all cursor-pointer"
+                aria-label="Close Leaderboard"
               >
-                ×
+                ✕
               </button>
             </div>
 
-            {/* Tabs */}
-            <div
-              className="flex border-b"
-              style={{ borderColor: 'rgba(255,255,255,0.07)' }}
-            >
+            {/* Game Selector Tabs */}
+            <div className="px-6 pt-4 pb-2 flex gap-2 border-b border-white/5 bg-white/[0.02]">
               {TABS.map((tab) => {
-                const isActive = tab.id === activeTab
+                const isActive = activeTab === tab.id
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id)
-                    }}
-                    className="flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer relative"
-                    style={{
-                      color: isActive ? tab.color : 'rgba(255,255,255,0.35)',
-                      background: isActive ? 'rgba(255,255,255,0.03)' : 'transparent',
-                    }}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`relative flex-1 py-2.5 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      isActive
+                        ? 'text-cyan-300 bg-cyan-500/15 border border-cyan-500/40 shadow-[0_0_15px_rgba(0,245,255,0.15)]'
+                        : 'text-white/40 hover:text-white/70 bg-transparent border border-transparent'
+                    }`}
                   >
-                    <span className="mr-1.5">{tab.icon}</span>
-                    {tab.label}
-                    {isActive && (
-                      <motion.div
-                        className="absolute bottom-0 left-0 right-0 h-[2px]"
-                        style={{ background: tab.color }}
-                        layoutId="tab-indicator"
-                      />
-                    )}
+                    <span>{tab.icon}</span>
+                    <span>{tab.label}</span>
                   </button>
                 )
               })}
             </div>
 
-            {/* Cache badge */}
-            {currentEntries !== null && (
-              <div className="px-5 pt-3 pb-0 flex items-center gap-1.5">
-                <span
-                  className="inline-block w-1.5 h-1.5 rounded-full"
-                  style={{ background: cached ? '#FF9F0A' : '#30D158' }}
-                />
-                <span className="text-[10px] font-mono uppercase tracking-wider text-white/30">
-                  {cached ? 'Cached · refreshes in ~5m' : 'Live'}
-                </span>
-              </div>
-            )}
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              <AnimatePresence mode="wait">
-                {isLoading && (
-                  <motion.div
-                    key="loading"
-                    className="flex flex-col items-center justify-center gap-3 py-16 text-white/40"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
+            {/* Content List */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-2">
+              {loading ? (
+                <div className="py-16 flex flex-col items-center justify-center gap-3">
+                  <LoadingOrb size={48} color="#00F5FF" />
+                  <p className="text-xs font-mono tracking-widest text-cyan-400/70 uppercase animate-pulse">
+                    Querying Satellite Leaderboard...
+                  </p>
+                </div>
+              ) : error ? (
+                <div className="py-12 px-4 text-center">
+                  <p className="text-sm text-rose-400 font-mono mb-2">⚠️ {error}</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab(activeTab)}
+                    className="text-xs font-mono text-cyan-400 hover:underline uppercase"
                   >
-                    <div
-                      className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
-                      style={{ borderColor: `${currentTab.color} transparent transparent transparent` }}
-                    />
-                    <p className="text-xs uppercase tracking-wider font-mono">Loading...</p>
-                  </motion.div>
-                )}
+                    Retry Connection
+                  </button>
+                </div>
+              ) : scores.length === 0 ? (
+                <div className="py-16 text-center text-white/40">
+                  <div className="text-3xl mb-2">🎯</div>
+                  <p className="text-sm font-medium text-white/60">No scores recorded yet</p>
+                  <p className="text-xs font-mono mt-1 text-white/40">
+                    Play a round and claim the rank #1 position!
+                  </p>
+                </div>
+              ) : (
+                <motion.div
+                  initial="hidden"
+                  animate="visible"
+                  variants={{
+                    visible: { transition: { staggerChildren: 0.04 } },
+                    hidden: {},
+                  }}
+                  className="space-y-2"
+                >
+                  {scores.map((entry) => {
+                    const isTop1 = entry.rank === 1
+                    const isTop2 = entry.rank === 2
+                    const isTop3 = entry.rank === 3
 
-                {currentError && !isLoading && (
-                  <motion.div
-                    key="error"
-                    className="mt-6 p-4 rounded-xl text-xs font-mono text-rose-300 bg-rose-500/10 border border-rose-500/20 text-center"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    ⚠️ {currentError}
-                  </motion.div>
-                )}
+                    const badgeColor = isTop1
+                      ? 'text-amber-400 border-amber-400/40 bg-amber-400/10'
+                      : isTop2
+                      ? 'text-cyan-300 border-cyan-400/40 bg-cyan-400/10'
+                      : isTop3
+                      ? 'text-orange-400 border-orange-400/40 bg-orange-400/10'
+                      : 'text-white/40 border-white/10 bg-white/5'
 
-                {!isLoading && !currentError && currentEntries !== null && (
-                  <motion.div
-                    key={activeTab}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.25 }}
-                    className="space-y-2"
-                  >
-                    {currentEntries.length === 0 ? (
-                      <div className="py-16 text-center">
-                        <p className="text-3xl mb-3">🎮</p>
-                        <p className="text-sm text-white/40 font-mono uppercase tracking-wider">
-                          No scores yet.
-                        </p>
-                        <p className="text-xs text-white/25 font-mono mt-1">
-                          Be the first on the board!
-                        </p>
-                      </div>
-                    ) : (
-                      currentEntries.map((entry, idx) => {
-                        const badge = RANK_BADGES[entry.rank]
-                        const isTopThree = entry.rank <= 3
-                        return (
-                          <motion.div
-                            key={entry.rank}
-                            className="flex items-center gap-3 px-4 py-3 rounded-xl border"
-                            style={{
-                              background: isTopThree
-                                ? `rgba(${entry.rank === 1 ? '255,215,0' : entry.rank === 2 ? '192,192,192' : '205,127,50'}, 0.04)`
-                                : 'rgba(255,255,255,0.02)',
-                              borderColor: isTopThree
-                                ? `rgba(${entry.rank === 1 ? '255,215,0' : entry.rank === 2 ? '192,192,192' : '205,127,50'}, 0.15)`
-                                : 'rgba(255,255,255,0.05)',
-                            }}
-                            initial={{ opacity: 0, x: 12 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: idx * 0.04 }}
+                    return (
+                      <motion.div
+                        key={`${entry.rank}-${entry.email_prefix}`}
+                        variants={{
+                          hidden: { opacity: 0, y: 10 },
+                          visible: { opacity: 1, y: 0 },
+                        }}
+                        className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                          isTop1
+                            ? 'bg-amber-400/[0.07] border-amber-400/30 shadow-[0_0_20px_rgba(251,191,36,0.12)]'
+                            : isTop2
+                            ? 'bg-cyan-400/[0.05] border-cyan-400/25'
+                            : isTop3
+                            ? 'bg-orange-400/[0.05] border-orange-400/25'
+                            : 'bg-white/[0.02] border-white/5 hover:border-white/10'
+                        }`}
+                      >
+                        {/* Rank + User */}
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`w-7 h-7 rounded-lg border flex items-center justify-center font-mono font-bold text-xs ${badgeColor}`}
                           >
-                            {/* Rank */}
-                            <div className="w-8 text-center flex-shrink-0">
-                              {badge ? (
-                                <span className="text-lg">{badge.icon}</span>
-                              ) : (
-                                <span className="text-xs font-mono font-bold text-white/30">
-                                  #{entry.rank}
-                                </span>
-                              )}
-                            </div>
+                            {isTop1 ? '🥇' : isTop2 ? '🥈' : isTop3 ? '🥉' : `#${entry.rank}`}
+                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-semibold tracking-wide text-white">
+                              {entry.email_prefix}
+                            </span>
+                            <span className="text-[10px] font-mono uppercase text-white/30 tracking-wider">
+                              Player
+                            </span>
+                          </div>
+                        </div>
 
-                            {/* Email prefix */}
-                            <div className="flex-1 min-w-0">
-                              <p
-                                className="text-sm font-bold truncate"
-                                style={{ color: isTopThree ? badge?.color : 'rgba(255,255,255,0.75)' }}
-                              >
-                                {entry.email_prefix}
-                              </p>
-                            </div>
-
-                            {/* Score */}
-                            <div
-                              className="text-sm font-black font-mono px-2.5 py-0.5 rounded-lg"
-                              style={{
-                                color: currentTab.color,
-                                background: `rgba(${activeTab === 'higher_lower' ? '48,209,88' : '0,245,255'}, 0.1)`,
-                              }}
-                            >
-                              {entry.score}
-                            </div>
-                          </motion.div>
-                        )
-                      })
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                        {/* Score */}
+                        <div className="text-right">
+                          <span
+                            className={`text-base font-black font-mono tracking-tight ${
+                              isTop1 ? 'text-amber-300' : 'text-cyan-400'
+                            }`}
+                          >
+                            {entry.score}
+                          </span>
+                          <span className="block text-[10px] uppercase font-mono text-white/40 tracking-wider">
+                            PTS
+                          </span>
+                        </div>
+                      </motion.div>
+                    )
+                  })}
+                </motion.div>
+              )}
             </div>
 
             {/* Footer */}
-            <div
-              className="px-5 py-3 border-t text-center"
-              style={{ borderColor: 'rgba(255,255,255,0.05)' }}
-            >
-              <p className="text-[10px] font-mono uppercase tracking-wider text-white/20">
-                Scores update on game over · Top 10 per game
-              </p>
+            <div className="px-6 py-3 border-t border-white/10 bg-black/40 flex items-center justify-between text-[11px] font-mono text-white/40">
+              <span>TOP 10 PILOTS</span>
+              <span>IN-MEMORY MEMOIZED</span>
             </div>
           </motion.div>
-        </>
+        </div>
       )}
     </AnimatePresence>
   )

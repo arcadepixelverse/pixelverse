@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
-import { apiFetch } from '../lib/apiClient'
+import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 
 export interface SurvivalGameData {
   scenario: string
@@ -121,7 +121,14 @@ export function SurvivalProtocol() {
       })
 
       if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`)
+        const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+          setGameState('playing')
+          setTimerActive(true)
+          return
+        }
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
@@ -211,7 +218,11 @@ export function SurvivalProtocol() {
       })
 
       if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`)
+        const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
+        if (errMsg === SERVER_OVERLOAD_MESSAGE) {
+          setErrorMsg(SERVER_OVERLOAD_MESSAGE)
+        }
+        throw new Error(errMsg)
       }
 
       const data = await res.json()

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { GameCard } from './GameCard'
@@ -63,8 +63,8 @@ const GAMES = [
 
 export function Dashboard() {
   const { user, todayUsage, signOut, refreshUsage } = useAuth()
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
   const navigate = useNavigate()
-  const [leaderboardOpen, setLeaderboardOpen] = useState(false)
 
   useEffect(() => {
     refreshUsage()
@@ -77,7 +77,6 @@ export function Dashboard() {
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
-      <Leaderboard isOpen={leaderboardOpen} onClose={() => setLeaderboardOpen(false)} />
       {/* ── Header ── */}
       <header className="flex items-center justify-between px-6 py-5 md:px-12 flex-wrap gap-4">
         <div className="flex items-center gap-2.5">
@@ -92,6 +91,16 @@ export function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Leaderboard button */}
+          <button
+            type="button"
+            onClick={() => setIsLeaderboardOpen(true)}
+            className="flex items-center gap-1.5 text-xs font-mono font-bold tracking-wider px-3.5 py-1.5 rounded-full transition-all bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border border-amber-400/30 hover:border-amber-400/50 cursor-pointer shadow-[0_0_12px_rgba(251,191,36,0.12)] hover:shadow-[0_0_18px_rgba(251,191,36,0.25)]"
+          >
+            <span>🏆</span>
+            <span>LEADERBOARD</span>
+          </button>
+
           {/* Quota indicator */}
           <div
             className="hidden sm:flex items-center gap-2 text-xs font-mono tracking-wider px-3 py-1.5 rounded-full"
@@ -108,20 +117,6 @@ export function Dashboard() {
             />
             <span>QUOTA: {todayUsage}/10</span>
           </div>
-
-          {/* Leaderboard button */}
-          <button
-            onClick={() => setLeaderboardOpen(true)}
-            className="text-xs font-bold uppercase tracking-wider px-3.5 py-1.5 rounded-full transition-all cursor-pointer"
-            style={{
-              background: 'rgba(255, 215, 0, 0.08)',
-              border: '1px solid rgba(255, 215, 0, 0.25)',
-              color: 'rgba(255, 215, 0, 0.85)',
-            }}
-            title="Global Leaderboard"
-          >
-            🏆 Leaderboard
-          </button>
 
           {/* User email */}
           {user?.email && (
@@ -207,6 +202,12 @@ export function Dashboard() {
           More games coming soon · Built with neon and dreams ⚡
         </motion.p>
       </main>
+
+      {/* ── Global Leaderboard Modal ── */}
+      <Leaderboard
+        isOpen={isLeaderboardOpen}
+        onClose={() => setIsLeaderboardOpen(false)}
+      />
     </div>
   )
 }

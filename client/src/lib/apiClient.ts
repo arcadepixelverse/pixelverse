@@ -60,3 +60,23 @@ export async function apiFetch(
 
   return response
 }
+
+export const SERVER_OVERLOAD_MESSAGE = 'Servers are under heavy load. Please try again in a minute.'
+
+/**
+ * Parses response error, translating ALL_AI_PROVIDERS_FAILED into the standard heavy load notice.
+ */
+export async function getApiErrorMessage(
+  response: Response,
+  defaultMessage: string = 'An unexpected error occurred.'
+): Promise<string> {
+  try {
+    const data = await response.clone().json()
+    if (data?.error === 'ALL_AI_PROVIDERS_FAILED' || data?.message?.includes('heavy load')) {
+      return SERVER_OVERLOAD_MESSAGE
+    }
+    return data?.message || data?.error || defaultMessage
+  } catch {
+    return defaultMessage
+  }
+}
