@@ -11,6 +11,8 @@ const requireAuth_1 = require("./middleware/requireAuth");
 const supabase_1 = require("./lib/supabase");
 const games_1 = require("./routes/games");
 const leaderboard_1 = require("./routes/leaderboard");
+const admin_1 = require("./routes/admin");
+const requireAdmin_1 = require("./middleware/requireAdmin");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 app.set('trust proxy', 1);
@@ -77,6 +79,8 @@ app.post('/api/test-quota', requireAuth_1.requireAuth, quotaGate_1.quotaGate, (_
 app.use('/api/games', games_1.gamesRouter);
 /** Leaderboards */
 app.use('/api/leaderboard', leaderboard_1.leaderboardRouter);
+/** Admin Console (Overlord) */
+app.use('/api/admin', requireAuth_1.requireAuth, requireAdmin_1.requireAdmin, admin_1.adminRouter);
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req, res) => {
     res.status(404).json({ error: 'Route not found' });

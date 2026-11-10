@@ -1,9 +1,15 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { GameCard } from './GameCard'
 import { useAuth } from '../context/AuthContext'
 import { Leaderboard } from './Leaderboard'
+
+const ADMIN_EMAILS = [
+  (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase(),
+  'pritisinghmgs@gmail.com',
+  'arcade.pixelverse@gmail.com',
+].filter(Boolean)
 
 // ── Game definitions ─────────────────────────────────────────────────────────
 
@@ -66,6 +72,10 @@ export function Dashboard() {
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
   const navigate = useNavigate()
 
+  const isAdmin = Boolean(
+    user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase())
+  )
+
   useEffect(() => {
     refreshUsage()
   }, [])
@@ -91,6 +101,18 @@ export function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Overlord Admin button (for admin accounts) */}
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className="flex items-center gap-1.5 text-xs font-mono font-bold tracking-wider px-3.5 py-1.5 rounded-full transition-all bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/40 hover:border-red-500/70 shadow-[0_0_15px_rgba(255,55,95,0.25)] hover:shadow-[0_0_22px_rgba(255,55,95,0.45)] cursor-pointer"
+              title="Open Overlord Console (Admin Panel)"
+            >
+              <span className="animate-pulse">⚡</span>
+              <span>SYSTEM OVERLORD</span>
+            </Link>
+          )}
+
           {/* Leaderboard button */}
           <button
             type="button"

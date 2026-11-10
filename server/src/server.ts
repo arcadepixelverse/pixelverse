@@ -6,6 +6,8 @@ import { requireAuth } from './middleware/requireAuth';
 import { supabaseAdmin } from './lib/supabase';
 import { gamesRouter } from './routes/games';
 import { leaderboardRouter } from './routes/leaderboard';
+import { adminRouter } from './routes/admin';
+import { requireAdmin } from './middleware/requireAdmin';
 
 dotenv.config();
 
@@ -85,6 +87,9 @@ app.use('/api/games', gamesRouter);
 
 /** Leaderboards */
 app.use('/api/leaderboard', leaderboardRouter);
+
+/** Admin Console (Overlord) */
+app.use('/api/admin', requireAuth, requireAdmin, adminRouter);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

@@ -1,7 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { quotaGate } from '../middleware/quotaGate';
 import { requireAuth } from '../middleware/requireAuth';
 import { supabaseAdmin } from '../lib/supabase';
+import { getGameStatus } from '../lib/gameStatus';
 import {
   generateJailbreakRole,
   generateJailbreakTurn,
@@ -20,6 +21,40 @@ import {
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
+
+function resolveGameKey(path: string): string | null {
+  const normalized = path.toLowerCase();
+  if (normalized.includes('jailbreak')) return 'jailbreak';
+  if (normalized.includes('higher-lower') || normalized.includes('higher_lower')) return 'higher_lower';
+  if (normalized.includes('mind-reader') || normalized.includes('mind_reader')) return 'mind_reader';
+  if (normalized.includes('turing-test') || normalized.includes('turing_test') || normalized.includes('turing')) return 'turing_test';
+  if (normalized.includes('survival')) return 'survival';
+  if (normalized.includes('vault')) return 'vault';
+  if (normalized.includes('wingman')) return 'wingman';
+  return null;
+}
+
+// ── Global Kill Switch Check (before quotaGate) ──────────────────────────────
+gamesRouter.use(async (req: Request, res: Response, next: NextFunction) => {
+  const gameKey = resolveGameKey(req.path || req.originalUrl || '');
+  if (!gameKey) {
+    return next();
+  }
+
+  try {
+    const gameStatus = await getGameStatus();
+    if (gameStatus[gameKey] === false) {
+      return res.status(403).json({
+        error: 'GAME_DISABLED',
+        message: 'This game has been temporarily disabled by the admin.',
+      });
+    }
+  } catch (err) {
+    console.warn('[gameStatusMiddleware] Error verifying game status:', err);
+  }
+
+  next();
+});
 
 function handleGameError(res: Response, routeName: string, err: any, defaultMsg: string) {
   console.error(`[${routeName}] Error:`, err);

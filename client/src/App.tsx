@@ -9,6 +9,7 @@ import { Vault } from './pages/Vault'
 import { Wingman } from './pages/Wingman'
 import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
+import { AdminConsole } from './pages/AdminConsole'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 function App() {
@@ -90,6 +91,14 @@ function App() {
           element={
             <ProtectedRoute>
               <Wingman />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminConsole />
             </ProtectedRoute>
           }
         />
