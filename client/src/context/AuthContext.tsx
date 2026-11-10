@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react'
 import type { User, Session, AuthResponse } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { apiFetch } from '../lib/apiClient'
 
 interface AuthContextType {
   user: User | null
@@ -24,7 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUsage = async (token: string) => {
     try {
-      const res = await fetch('http://localhost:10000/api/auth/me', {
+      const res = await apiFetch('/api/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },

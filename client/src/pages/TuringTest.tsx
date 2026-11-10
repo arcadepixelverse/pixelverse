@@ -211,7 +211,7 @@ export function TuringTest() {
     setIsTimedOut(false)
 
     try {
-      const res = await apiFetch('http://localhost:10000/api/games/turing-test/generate', {
+      const res = await apiFetch('/api/games/turing-test/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ difficulty: selectedDifficulty }),

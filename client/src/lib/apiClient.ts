@@ -1,6 +1,19 @@
 import { supabase } from './supabase'
 
 /**
+ * Exact backend URL without any trailing slashes.
+ * Prioritizes VITE_API_URL / VITE_BACKEND_URL; in production or default falls back to the live Render backend.
+ */
+const RAW_BACKEND_URL: string =
+  (import.meta.env.VITE_API_URL as string | undefined) ||
+  (import.meta.env.VITE_BACKEND_URL as string | undefined) ||
+  (import.meta.env.PROD
+    ? 'https://pixelverse-backend.onrender.com'
+    : 'http://localhost:10000')
+
+export const BACKEND_URL: string = RAW_BACKEND_URL.trim().replace(/\/+$/, '')
+
+/**
  * Enhanced fetch wrapper that attaches the Supabase JWT Bearer token,
  * automatically handles token refresh on 401, retries once, and on a second
  * 401 signs the user out and performs a hard redirect to /login.
@@ -9,17 +22,23 @@ export async function apiFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
+  // Strip hardcoded localhost prefix if present
+  let cleanPath = path
+  if (cleanPath.startsWith('http://localhost:10000')) {
+    cleanPath = cleanPath.slice('http://localhost:10000'.length)
+  }
+
   const url =
-    path.startsWith('http://') || path.startsWith('https://')
-      ? path
-      : `http://localhost:10000${path.startsWith('/') ? path : `/${path}`}`
+    cleanPath.startsWith('http://') || cleanPath.startsWith('https://')
+      ? cleanPath
+      : `${BACKEND_URL}${cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`}`
 
   const buildHeaders = (token?: string | null): HeadersInit => {
     const headers = new Headers(options.headers || {})
     if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json')
     }
-    if (token) {
+    if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`)
     }
     return headers
@@ -28,6 +47,15 @@ export async function apiFetch(
   // 1. Get current session
   const { data: sessionData } = await supabase.auth.getSession()
   let token = sessionData.session?.access_token
+
+  if (!token) {
+    try {
+      const { data: refreshData } = await supabase.auth.refreshSession()
+      token = refreshData.session?.access_token
+    } catch {
+      // Proceed without token if user is not authenticated
+    }
+  }
 
   // Initial fetch
   let response = await fetch(url, {

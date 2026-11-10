@@ -237,7 +237,7 @@ export function Vault() {
     console.log("Sending to Vault API...", payload)
 
     try {
-      const res = await apiFetch('http://localhost:10000/api/games/vault/chat', {
+      const res = await apiFetch('/api/games/vault/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

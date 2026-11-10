@@ -120,7 +120,7 @@ export function Wingman() {
     setGameState('loading')
 
     try {
-      const res = await apiFetch('http://localhost:10000/api/games/wingman/generate', {
+      const res = await apiFetch('/api/games/wingman/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode, input: trimmed }),

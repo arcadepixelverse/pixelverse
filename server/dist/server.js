@@ -13,9 +13,20 @@ const games_1 = require("./routes/games");
 const leaderboard_1 = require("./routes/leaderboard");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 10000;
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use((0, cors_1.default)());
+app.use((0, cors_1.default)({
+    origin: [
+        'http://localhost:5173',
+        'https://pixelverse.arcade-pixelverse.workers.dev'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+// Explicitly handle OPTIONS preflight requests
+app.options('*', (0, cors_1.default)());
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 // ── Routes ────────────────────────────────────────────────────────────────────

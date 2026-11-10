@@ -45,7 +45,7 @@ export function MindReader() {
 
     try {
       // 1. Start game session
-      const startRes = await apiFetch('http://localhost:10000/api/games/mind-reader/start', {
+      const startRes = await apiFetch('/api/games/mind-reader/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secretNumber: num }),
@@ -66,7 +66,7 @@ export function MindReader() {
       setGameId(newGameId)
 
       // 2. Immediately call /ask to get the very first question
-      const askRes = await apiFetch('http://localhost:10000/api/games/mind-reader/ask', {
+      const askRes = await apiFetch('/api/games/mind-reader/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameId: newGameId }),
@@ -125,7 +125,7 @@ export function MindReader() {
     setErrorMsg(null)
 
     try {
-      const res = await apiFetch('http://localhost:10000/api/games/mind-reader/ask', {
+      const res = await apiFetch('/api/games/mind-reader/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -203,7 +203,7 @@ export function MindReader() {
 
     if (gameId && !gameId.startsWith('offline-')) {
       try {
-        await apiFetch('http://localhost:10000/api/games/mind-reader/finish', {
+        await apiFetch('/api/games/mind-reader/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ gameId, didWin }),

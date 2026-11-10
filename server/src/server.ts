@@ -10,10 +10,22 @@ import { leaderboardRouter } from './routes/leaderboard';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 10000;
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:5173', 
+    'https://pixelverse.arcade-pixelverse.workers.dev'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+// Explicitly handle OPTIONS preflight requests
+app.options('*', cors());
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
