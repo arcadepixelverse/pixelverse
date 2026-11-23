@@ -9,7 +9,7 @@ export interface LeaderboardEntry {
   score: number
 }
 
-export type LeaderboardGame = 'higher_lower' | 'turing_test'
+export type LeaderboardGame = 'higher_lower' | 'turing_test' | 'cyber_sprint'
 
 interface LeaderboardProps {
   isOpen: boolean
@@ -19,6 +19,7 @@ interface LeaderboardProps {
 const TABS: { id: LeaderboardGame; label: string; icon: string }[] = [
   { id: 'higher_lower', label: 'Higher / Lower', icon: '📈' },
   { id: 'turing_test', label: 'Turing Test', icon: '🤖' },
+  { id: 'cyber_sprint', label: 'Cyber Sprint', icon: '⌨️' },
 ]
 
 export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {

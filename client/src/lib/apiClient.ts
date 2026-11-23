@@ -86,13 +86,70 @@ export async function apiFetch(
     }
   }
 
+  // 3. On 429: Check for PLAY_LIMIT_REACHED and display modal
+  if (response.status === 429) {
+    try {
+      const cloned = response.clone()
+      const data = await cloned.json()
+      if (data?.error === 'PLAY_LIMIT_REACHED') {
+        showPlayLimitModal()
+      }
+    } catch {
+      // ignore json parse errors
+    }
+  }
+
   return response
 }
 
 export const SERVER_OVERLOAD_MESSAGE = 'Servers are under heavy load. Please try again in a minute.'
+export const PLAY_LIMIT_MESSAGE = 'You have reached your 10 game limit for today. Come back tomorrow!'
 
 /**
- * Parses response error, translating ALL_AI_PROVIDERS_FAILED into the standard heavy load notice.
+ * Injects a cyberpunk glassmorphic modal notifying the player of their daily limit.
+ */
+export function showPlayLimitModal() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('pixelverse-play-limit-modal')) return
+
+  const modal = document.createElement('div')
+  modal.id = 'pixelverse-play-limit-modal'
+  modal.className = 'fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md'
+  modal.innerHTML = `
+    <div style="background: rgba(15, 17, 26, 0.95); border: 1px solid rgba(255, 69, 58, 0.4); box-shadow: 0 0 50px rgba(255, 69, 58, 0.25);" class="max-w-md w-full rounded-2xl p-6 text-center text-white relative">
+      <div class="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center bg-red-500/15 border border-red-500/30 text-2xl shadow-[0_0_20px_rgba(255,69,58,0.3)]">
+        ⏳
+      </div>
+      <h3 style="font-family: monospace; letter-spacing: 0.2em;" class="text-lg font-black uppercase text-red-400 mb-2">
+        DAILY LIMIT REACHED
+      </h3>
+      <p style="font-family: monospace;" class="text-sm text-white/80 leading-relaxed mb-6">
+        You have reached your 10 game limit for today. Come back tomorrow!
+      </p>
+      <div class="flex justify-center gap-3">
+        <button id="pixelverse-play-limit-close-btn" style="background: rgba(255, 69, 58, 0.15); border: 1px solid rgba(255, 69, 58, 0.4); font-family: monospace; letter-spacing: 0.15em;" class="px-6 py-2.5 rounded-full text-xs font-bold uppercase text-red-300 hover:bg-red-500/25 transition cursor-pointer">
+          RETURN TO ARCADE
+        </button>
+      </div>
+    </div>
+  `
+
+  document.body.appendChild(modal)
+
+  const closeBtn = modal.querySelector('#pixelverse-play-limit-close-btn')
+  const cleanup = () => {
+    modal.remove()
+    window.location.href = '/'
+  }
+
+  closeBtn?.addEventListener('click', cleanup)
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) cleanup()
+  })
+}
+
+/**
+ * Parses response error, translating known backend error codes into friendly notices.
  */
 export async function getApiErrorMessage(
   response: Response,
@@ -102,6 +159,15 @@ export async function getApiErrorMessage(
     const data = await response.clone().json()
     if (data?.error === 'ALL_AI_PROVIDERS_FAILED' || data?.message?.includes('heavy load')) {
       return SERVER_OVERLOAD_MESSAGE
+    }
+    if (data?.error === 'PLAY_LIMIT_REACHED' || data?.message?.includes('10 game limit')) {
+      return PLAY_LIMIT_MESSAGE
+    }
+    if (data?.error === 'USER_BANNED') {
+      return 'Your account has been suspended.'
+    }
+    if (data?.error === 'GAME_DISABLED') {
+      return 'This game has been temporarily disabled by the admin.'
     }
     return data?.message || data?.error || defaultMessage
   } catch {

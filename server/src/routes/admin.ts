@@ -79,7 +79,7 @@ adminRouter.post('/games/toggle', async (req: Request, res: Response) => {
 
 /**
  * GET /api/admin/users
- * Returns list of top 50 users with their email and today's AI calls count.
+ * Returns list of top 50 users with their email, today's AI calls count, and profile status.
  */
 adminRouter.get('/users', async (_req: Request, res: Response) => {
   try {
@@ -108,18 +108,169 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
       (usageData || []).map((row) => [row.user_id, Number(row.ai_calls_count) || 0])
     );
 
-    const users = rawUsers.map((u) => ({
-      id: u.id,
-      email: u.email || 'Anonymous',
-      ai_calls_count: usageMap.get(u.id) || 0,
-      created_at: u.created_at,
-      last_sign_in_at: u.last_sign_in_at,
-    }));
+    // 3. Fetch profiles (is_banned, total_plays, last_played_at)
+    const { data: profilesData, error: profileErr } = await supabaseAdmin
+      .from('profiles')
+      .select('id, is_banned, total_plays, last_played_at');
+
+    if (profileErr) {
+      console.warn('[admin/users] Error querying profiles:', profileErr);
+    }
+
+    const profileMap = new Map<string, any>(
+      (profilesData || []).map((p) => [p.id, p])
+    );
+
+    const users = rawUsers.map((u) => {
+      const prof = profileMap.get(u.id);
+      return {
+        id: u.id,
+        email: u.email || 'Anonymous',
+        ai_calls_count: usageMap.get(u.id) || 0,
+        total_plays: prof?.total_plays ?? 0,
+        is_banned: Boolean(prof?.is_banned),
+        last_played_at: prof?.last_played_at || null,
+        created_at: u.created_at,
+        last_sign_in_at: u.last_sign_in_at,
+      };
+    });
 
     return res.json(users);
   } catch (err: any) {
     console.error('[admin/users] Unexpected error:', err);
     return res.status(500).json({ error: 'Failed to fetch users list' });
+  }
+});
+
+/**
+ * GET /api/admin/users/:id
+ * Return full user details (email, total_plays, last_played_at, is_banned, AI calls today).
+ */
+adminRouter.get('/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing userId' });
+    }
+
+    // 1. Fetch user from Supabase Auth
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.admin.getUserById(id);
+    if (userErr || !userData?.user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userData.user;
+
+    // 2. Fetch profile from profiles table
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, is_banned, total_plays, last_played_at')
+      .eq('id', id)
+      .maybeSingle();
+
+    // 3. Fetch today's AI calls
+    const today = new Date().toISOString().split('T')[0];
+    const { data: usageData } = await supabaseAdmin
+      .from('daily_usage')
+      .select('ai_calls_count')
+      .eq('user_id', id)
+      .eq('usage_date', today)
+      .maybeSingle();
+
+    return res.json({
+      id: user.id,
+      email: user.email || 'Anonymous',
+      total_plays: profile?.total_plays ?? 0,
+      last_played_at: profile?.last_played_at || null,
+      is_banned: Boolean(profile?.is_banned),
+      ai_calls_count: Number(usageData?.ai_calls_count) || 0,
+      created_at: user.created_at,
+      last_sign_in_at: user.last_sign_in_at,
+    });
+  } catch (err: any) {
+    console.error('[admin/users/:id] Error:', err);
+    return res.status(500).json({ error: 'Failed to fetch user details' });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/ban
+ * Update is_banned = true in profiles table.
+ */
+adminRouter.post('/users/:id/ban', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing userId' });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .upsert({ id, is_banned: true }, { onConflict: 'id' });
+
+    if (error) {
+      console.error('[admin/users/:id/ban] Error banning user:', error);
+      return res.status(500).json({ error: 'Failed to ban user' });
+    }
+
+    return res.json({ success: true, message: 'User banned successfully', is_banned: true });
+  } catch (err: any) {
+    console.error('[admin/users/:id/ban] Error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/admin/users/:id/unban
+ * Update is_banned = false in profiles table.
+ */
+adminRouter.post('/users/:id/unban', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing userId' });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .upsert({ id, is_banned: false }, { onConflict: 'id' });
+
+    if (error) {
+      console.error('[admin/users/:id/unban] Error unbanning user:', error);
+      return res.status(500).json({ error: 'Failed to unban user' });
+    }
+
+    return res.json({ success: true, message: 'User unbanned successfully', is_banned: false });
+  } catch (err: any) {
+    console.error('[admin/users/:id/unban] Error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:id
+ * Delete user from Supabase Auth (and profiles table).
+ */
+adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing userId' });
+    }
+
+    // 1. Delete user from Supabase Auth
+    const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(id);
+    if (authErr) {
+      console.error('[admin/users/:id/delete] Error deleting auth user:', authErr);
+      return res.status(500).json({ error: authErr.message || 'Failed to delete user from auth' });
+    }
+
+    // 2. Delete user profile
+    await supabaseAdmin.from('profiles').delete().eq('id', id);
+
+    return res.json({ success: true, message: 'User deleted successfully' });
+  } catch (err: any) {
+    console.error('[admin/users/:id/delete] Error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

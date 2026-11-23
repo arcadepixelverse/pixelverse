@@ -7,6 +7,7 @@ import { TuringTest } from './pages/TuringTest'
 import { SurvivalProtocol } from './pages/SurvivalProtocol'
 import { Vault } from './pages/Vault'
 import { Wingman } from './pages/Wingman'
+import { CyberSprint } from './pages/CyberSprint'
 import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
 import { AdminConsole } from './pages/AdminConsole'
@@ -91,6 +92,14 @@ function App() {
           element={
             <ProtectedRoute>
               <Wingman />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/cyber-sprint"
+          element={
+            <ProtectedRoute>
+              <CyberSprint />
             </ProtectedRoute>
           }
         />

@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { quotaGate } from '../middleware/quotaGate';
 import { requireAuth } from '../middleware/requireAuth';
+import { playGate } from '../middleware/playGate';
 import { supabaseAdmin } from '../lib/supabase';
 import { getGameStatus } from '../lib/gameStatus';
 import {
@@ -31,6 +32,7 @@ function resolveGameKey(path: string): string | null {
   if (normalized.includes('survival')) return 'survival';
   if (normalized.includes('vault')) return 'vault';
   if (normalized.includes('wingman')) return 'wingman';
+  if (normalized.includes('cyber-sprint') || normalized.includes('cyber_sprint')) return 'cyber_sprint';
   return null;
 }
 
@@ -83,6 +85,7 @@ function handleGameError(res: Response, routeName: string, err: any, defaultMsg:
 gamesRouter.post(
   ['/jailbreak/start', '/api/games/jailbreak/start'],
   requireAuth,
+  playGate,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -395,11 +398,17 @@ const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
 };
 
 gamesRouter.post(
-  ['/higher-lower/generate', '/api/games/higher-lower/generate'],
+  ['/higher-lower/generate', '/higher-lower/start', '/api/games/higher-lower/generate', '/api/games/higher-lower/start'],
+  requireAuth,
+  playGate,
+  quotaGate,
   handleHigherLowerGenerate
 );
 gamesRouter.get(
-  ['/higher-lower/generate', '/api/games/higher-lower/generate'],
+  ['/higher-lower/generate', '/higher-lower/start', '/api/games/higher-lower/generate', '/api/games/higher-lower/start'],
+  requireAuth,
+  playGate,
+  quotaGate,
   handleHigherLowerGenerate
 );
 
@@ -413,6 +422,7 @@ gamesRouter.get(
 gamesRouter.post(
   ['/mind-reader/start', '/api/games/mind-reader/start'],
   requireAuth,
+  playGate,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -669,8 +679,9 @@ gamesRouter.post(
  * updates last_used_at = now(), and returns them formatted and shuffled.
  */
 gamesRouter.post(
-  ['/turing-test/generate', '/api/games/turing-test/generate'],
+  ['/turing-test/generate', '/turing-test/start', '/api/games/turing-test/generate', '/api/games/turing-test/start'],
   requireAuth,
+  playGate,
   quotaGate,
   async (req: Request, res: Response) => {
     try {
@@ -766,6 +777,7 @@ gamesRouter.post(
 gamesRouter.post(
   ['/survival/start', '/api/games/survival/start'],
   requireAuth,
+  playGate,
   quotaGate,
   async (_req: Request, res: Response) => {
     try {
@@ -963,8 +975,9 @@ gamesRouter.post(
  * Accepts { mode: 'roast' | 'convo', input: string }.
  */
 gamesRouter.post(
-  ['/wingman/generate', '/api/games/wingman/generate'],
+  ['/wingman/generate', '/wingman/start', '/api/games/wingman/generate', '/api/games/wingman/start'],
   requireAuth,
+  playGate,
   quotaGate,
   async (req: Request, res: Response) => {
     try {

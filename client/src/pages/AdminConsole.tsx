@@ -18,6 +18,9 @@ interface AdminUser {
   id: string
   email: string
   ai_calls_count: number
+  total_plays?: number
+  is_banned?: boolean
+  last_played_at?: string | null
   created_at?: string
   last_sign_in_at?: string
 }
@@ -74,6 +77,13 @@ const GAME_DEFINITIONS: GameDefinition[] = [
     category: 'SOCIAL_AI',
   },
   {
+    id: 'cyber_sprint',
+    name: 'Cyber Sprint',
+    codename: 'MOD_CYBER_SPRINT',
+    desc: 'Real-time terminal velocity typing arcade',
+    category: 'REACTION_CORE',
+  },
+  {
     id: 'vault',
     name: 'The Vault',
     codename: 'MOD_VAULT_RESERVE',
@@ -86,9 +96,10 @@ export function AdminConsole() {
   const { user } = useAuth()
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
   const [togglingGame, setTogglingGame] = useState<string | null>(null)
-  const [grantingUser, setGrantingUser] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<boolean>(false)
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
   const [accessDenied, setAccessDenied] = useState<boolean>(false)
 
@@ -192,10 +203,85 @@ export function AdminConsole() {
     }
   }
 
-  // Grant premium placeholder
+  // Ban User
+  const handleBanUser = async (userId: string) => {
+    if (actionLoading) return
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/ban`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        throw new Error(await getApiErrorMessage(res, 'Failed to ban user'))
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, is_banned: true } : u))
+      )
+      setSelectedUser((prev) => (prev?.id === userId ? { ...prev, is_banned: true } : prev))
+      showToast('User has been banned and locked out.', 'success')
+    } catch (err: any) {
+      console.error('[AdminConsole] Ban failed:', err)
+      showToast(err?.message || 'Failed to ban user', 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // Unban User
+  const handleUnbanUser = async (userId: string) => {
+    if (actionLoading) return
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/unban`, {
+        method: 'POST',
+      })
+      if (!res.ok) {
+        throw new Error(await getApiErrorMessage(res, 'Failed to unban user'))
+      }
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, is_banned: false } : u))
+      )
+      setSelectedUser((prev) => (prev?.id === userId ? { ...prev, is_banned: false } : prev))
+      showToast('User has been unbanned and restored.', 'success')
+    } catch (err: any) {
+      console.error('[AdminConsole] Unban failed:', err)
+      showToast(err?.message || 'Failed to unban user', 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // Delete User
+  const handleDeleteUser = async (userId: string, email: string) => {
+    if (actionLoading) return
+    const confirmed = window.confirm(
+      `PERMANENT DELETION WARNING: Are you sure you want to completely erase user <${email}>? This action cannot be reversed.`
+    )
+    if (!confirmed) return
+
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        throw new Error(await getApiErrorMessage(res, 'Failed to delete user'))
+      }
+      setUsers((prev) => prev.filter((u) => u.id !== userId))
+      setSelectedUser(null)
+      showToast(`User <${email}> has been purged from system.`, 'success')
+    } catch (err: any) {
+      console.error('[AdminConsole] Delete failed:', err)
+      showToast(err?.message || 'Failed to delete user', 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // Grant VIP placeholder
   const handleGrantPremium = async (userId: string, email: string) => {
-    if (grantingUser) return
-    setGrantingUser(userId)
+    if (actionLoading) return
+    setActionLoading(true)
     try {
       const res = await apiFetch('/api/admin/users/premium', {
         method: 'POST',
@@ -204,15 +290,15 @@ export function AdminConsole() {
       })
 
       if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Failed to grant premium'))
+        throw new Error(await getApiErrorMessage(res, 'Failed to grant VIP'))
       }
 
       showToast(`VIP Clearance granted to ${email}`, 'success')
     } catch (err: any) {
       console.error('[AdminConsole] Premium error:', err)
-      showToast(err?.message || 'Premium upgrade failed', 'error')
+      showToast(err?.message || 'VIP upgrade failed', 'error')
     } finally {
-      setGrantingUser(null)
+      setActionLoading(false)
     }
   }
 
@@ -471,37 +557,39 @@ export function AdminConsole() {
                 <thead>
                   <tr className="border-b border-green-500/20 bg-green-500/[0.04] text-green-400/60 text-[11px] uppercase tracking-wider">
                     <th className="py-3 px-4">Pilot Designation</th>
-                    <th className="py-3 px-4">Today's Incursions</th>
                     <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Plays</th>
+                    <th className="py-3 px-4">Today's Incursions</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-green-500/10">
                   {loading && users.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-green-500/50">
+                      <td colSpan={5} className="py-8 text-center text-green-500/50">
                         SCANNING NEURAL REGISTRY...
                       </td>
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-white/40">
+                      <td colSpan={5} className="py-8 text-center text-white/40">
                         NO ACTIVE PILOTS REGISTERED IN ARCHIVE
                       </td>
                     </tr>
                   ) : (
                     users.map((u) => {
-                      const isGranting = grantingUser === u.id
                       const isQuotaDepleted = u.ai_calls_count >= 10
+                      const isPlayDepleted = (u.total_plays ?? 0) >= 10
 
                       return (
                         <tr
                           key={u.id}
-                          className="hover:bg-green-500/[0.03] transition-colors"
+                          onClick={() => setSelectedUser(u)}
+                          className="hover:bg-green-500/[0.08] cursor-pointer transition-colors group"
                         >
                           <td className="py-3.5 px-4 font-mono">
                             <div className="flex flex-col">
-                              <span className="text-white font-bold tracking-tight">
+                              <span className="text-white font-bold tracking-tight group-hover:text-green-300 transition-colors">
                                 {u.email}
                               </span>
                               <span className="text-[10px] text-green-500/40 tracking-wider">
@@ -511,22 +599,17 @@ export function AdminConsole() {
                           </td>
 
                           <td className="py-3.5 px-4 font-mono">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`text-sm font-bold ${
-                                  isQuotaDepleted ? 'text-red-400' : 'text-cyan-300'
-                                }`}
-                              >
-                                {u.ai_calls_count}
+                            {u.is_banned ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-red-400 uppercase tracking-wider font-bold">
+                                BANNED
                               </span>
-                              <span className="text-white/30 text-[10px]">/ 10 QUOTA</span>
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-4 font-mono">
-                            {isQuotaDepleted ? (
+                            ) : isPlayDepleted ? (
                               <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/15 border border-red-500/30 text-red-300 uppercase tracking-wider">
-                                LOCKED
+                                PLAY LIMIT
+                              </span>
+                            ) : isQuotaDepleted ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 uppercase tracking-wider">
+                                AI LOCKED
                               </span>
                             ) : (
                               <span className="text-[10px] px-2 py-0.5 rounded bg-green-500/15 border border-green-500/30 text-green-300 uppercase tracking-wider">
@@ -535,15 +618,43 @@ export function AdminConsole() {
                             )}
                           </td>
 
+                          <td className="py-3.5 px-4 font-mono">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-sm font-bold ${
+                                  isPlayDepleted ? 'text-red-400' : 'text-amber-300'
+                                }`}
+                              >
+                                {u.total_plays ?? 0}
+                              </span>
+                              <span className="text-white/30 text-[10px]">/ 10</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`text-sm font-bold ${
+                                  isQuotaDepleted ? 'text-red-400' : 'text-cyan-300'
+                                }`}
+                              >
+                                {u.ai_calls_count}
+                              </span>
+                              <span className="text-white/30 text-[10px]">/ 10</span>
+                            </div>
+                          </td>
+
                           <td className="py-3.5 px-4 text-right">
                             <button
                               type="button"
-                              disabled={isGranting}
-                              onClick={() => handleGrantPremium(u.id, u.email)}
-                              className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:border-purple-500/50 transition-all cursor-pointer disabled:opacity-50 shadow-[0_0_10px_rgba(191,90,242,0.1)]"
-                              title="Grant Premium Quota Clearance (Placeholder)"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedUser(u)
+                              }}
+                              className="px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-green-500/30 bg-green-500/10 hover:bg-green-500/20 text-green-300 hover:border-green-500/50 transition-all cursor-pointer shadow-[0_0_10px_rgba(48,209,88,0.1)]"
+                              title="Inspect and manage user profile"
                             >
-                              {isGranting ? 'GRANTING...' : '★ GRANT VIP'}
+                              MANAGE ⚙
                             </button>
                           </td>
                         </tr>
@@ -556,6 +667,128 @@ export function AdminConsole() {
           </div>
         </section>
       </main>
+
+      {/* ── User Detail Modal ── */}
+      <AnimatePresence>
+        {selectedUser && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="max-w-lg w-full rounded-2xl border border-green-500/30 bg-[#0c0e14]/95 backdrop-blur-2xl p-6 text-green-300 font-mono shadow-[0_0_50px_rgba(48,209,88,0.15)] relative"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-green-500/20 mb-6">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">👤</span>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                    PILOT_PROFILE_INSPECTION
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedUser(null)}
+                  className="w-8 h-8 rounded-full border border-white/10 hover:border-white/30 text-white/50 hover:text-white flex items-center justify-center transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-8 text-xs">
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-white/40 uppercase">Email</span>
+                  <span className="font-bold text-white select-all">{selectedUser.email}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-white/40 uppercase">User ID</span>
+                  <span className="text-[11px] text-green-400/70 select-all font-mono">{selectedUser.id}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-white/40 uppercase">Account Status</span>
+                  {selectedUser.is_banned ? (
+                    <span className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-red-400 font-bold uppercase">
+                      SUSPENDED / BANNED
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded bg-green-500/20 border border-green-500/40 text-green-300 font-bold uppercase">
+                      ACTIVE & CLEAR
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-white/40 uppercase">Total Plays</span>
+                  <span className="font-bold text-amber-300">
+                    {selectedUser.total_plays ?? 0} / 10
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-white/40 uppercase">Today's AI Incursions</span>
+                  <span className="font-bold text-cyan-300">
+                    {selectedUser.ai_calls_count ?? 0} / 10
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-white/40 uppercase">Last Played At</span>
+                  <span className="text-white/70">
+                    {selectedUser.last_played_at
+                      ? new Date(selectedUser.last_played_at).toLocaleString()
+                      : 'Never'}
+                  </span>
+                </div>
+                {selectedUser.created_at && (
+                  <div className="flex justify-between items-center py-2 border-b border-white/5">
+                    <span className="text-white/40 uppercase">Created At</span>
+                    <span className="text-white/70">
+                      {new Date(selectedUser.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 border-t border-green-500/20 flex flex-wrap gap-2.5 justify-end">
+                {selectedUser.is_banned ? (
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => handleUnbanUser(selectedUser.id)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/40 hover:border-green-500/70 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {actionLoading ? 'PROCESSING...' : '✓ UNBAN USER'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => handleBanUser(selectedUser.id)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 hover:border-red-500/70 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {actionLoading ? 'PROCESSING...' : '⛔ BAN USER'}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => handleGrantPremium(selectedUser.id, selectedUser.email)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 hover:border-purple-500/70 transition cursor-pointer disabled:opacity-50"
+                >
+                  ★ PROMOTE TO VIP
+                </button>
+
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => handleDeleteUser(selectedUser.id, selectedUser.email)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-600/40 hover:border-rose-500 transition cursor-pointer disabled:opacity-50"
+                >
+                  🗑 DELETE ACCOUNT
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

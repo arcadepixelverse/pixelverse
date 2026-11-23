@@ -47,6 +47,14 @@ const GAMES = [
     href: '/games/turing-test',
   },
   {
+    title: 'Survival Protocol',
+    description: 'Bizarre life-or-death scenarios. Use environmental clues and items to survive.',
+    icon: '⚡',
+    neonClass: 'neon-red',
+    iconBg: 'rgba(255, 69, 58, 0.12)',
+    href: '/games/survival',
+  },
+  {
     title: 'The Vault',
     description: 'An empathetic AI sanctuary for your thoughts. Your secrets are safe here.',
     icon: '🔒',
@@ -62,6 +70,14 @@ const GAMES = [
     neonClass: 'neon-red',
     iconBg: 'rgba(255, 69, 58, 0.12)',
     href: '/games/wingman',
+  },
+  {
+    title: 'Cyber Sprint',
+    description: 'Type fast. Survive the grid.',
+    icon: '⚡',
+    neonClass: 'neon-green',
+    iconBg: 'rgba(48, 209, 88, 0.12)',
+    href: '/games/cyber-sprint',
   },
 ]
 
