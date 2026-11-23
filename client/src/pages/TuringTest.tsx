@@ -16,6 +16,7 @@ export type DifficultyMode = 'fun' | 'normal' | 'serious'
 interface DifficultyConfig {
   label: string
   tier: string
+  multiplier: number
   title: string
   tagline: string
   description: string
@@ -29,10 +30,17 @@ interface DifficultyConfig {
   glow: string
 }
 
+export const TURING_MULTIPLIERS: Record<DifficultyMode, number> = {
+  fun: 1,
+  normal: 2,
+  serious: 3,
+}
+
 const DIFFICULTY_CONFIG: Record<DifficultyMode, DifficultyConfig> = {
   fun: {
     label: 'FUN',
-    tier: 'TIER 1 • CASUAL',
+    tier: 'TIER 1 • CASUAL (1x PTS)',
+    multiplier: 1,
     title: 'Fun & Sarcastic',
     tagline: 'Quirky & Cynical',
     description: 'Sarcastic, lowercase Reddit-style human comments versus overly formal, robotic AI responses to everyday weirdness.',
@@ -47,7 +55,8 @@ const DIFFICULTY_CONFIG: Record<DifficultyMode, DifficultyConfig> = {
   },
   normal: {
     label: 'NORMAL',
-    tier: 'TIER 2 • STANDARD',
+    tier: 'TIER 2 • STANDARD (2x PTS)',
+    multiplier: 2,
     title: 'Normal Everyday',
     tagline: 'Balanced Scenarios',
     description: 'Everyday scenario questions. Casual text message human responses versus standard, slightly verbose AI explanations.',
@@ -62,7 +71,8 @@ const DIFFICULTY_CONFIG: Record<DifficultyMode, DifficultyConfig> = {
   },
   serious: {
     label: 'SERIOUS',
-    tier: 'TIER 3 • EXPERT',
+    tier: 'TIER 3 • EXPERT (3x PTS)',
+    multiplier: 3,
     title: 'Deep & Philosophical',
     tagline: 'Existential Ethics',
     description: 'Deep, philosophical, and ethical questions. Nuanced, emotional, flawed human reflections versus balanced, structured AI synthesis.',
@@ -273,14 +283,17 @@ export function TuringTest() {
   useEffect(() => {
     if ((gameState === 'reveal' || gameState === 'gameover') && score > 0 && !hasSubmittedScore.current) {
       hasSubmittedScore.current = true
+      const mult = TURING_MULTIPLIERS[difficulty]
+      const finalScore = Math.round(score * mult)
       apiFetch('/api/leaderboard/turing_test', {
         method: 'POST',
-        body: JSON.stringify({ score }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: finalScore, difficulty }),
       }).catch((err) => {
         console.warn('[TuringTest] Quiet leaderboard submit failed:', err)
       })
     }
-  }, [gameState, score])
+  }, [gameState, score, difficulty])
 
   // Handle user selecting an answer card
   const handleSelectAnswer = (option: 'A' | 'B') => {
@@ -908,6 +921,30 @@ export function TuringTest() {
                 </motion.span>
               </div>
 
+              {/* Multiplier Breakdown Stat */}
+              <div
+                className="w-full py-3 px-6 rounded-2xl mb-6 flex items-center justify-around border"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase tracking-widest text-white/40 font-mono">Raw</span>
+                  <span className="text-lg font-black font-mono text-white/80">{score}</span>
+                </div>
+                <div className="h-6 w-px bg-white/10" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase tracking-widest text-cyan-400 font-mono">Multiplier</span>
+                  <span className="text-lg font-black font-mono text-cyan-300">{TURING_MULTIPLIERS[difficulty]}x</span>
+                </div>
+                <div className="h-6 w-px bg-white/10" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase tracking-widest text-green-400 font-mono">Leaderboard Pts</span>
+                  <span className="text-xl font-black font-mono text-green-400">{score * TURING_MULTIPLIERS[difficulty]}</span>
+                </div>
+              </div>
+
               {/* Verdict Message Box */}
               <div
                 className="w-full min-h-[70px] p-5 rounded-2xl mb-8 border flex items-center justify-center text-center"
@@ -1014,7 +1051,7 @@ export function TuringTest() {
                 </div>
               )}
 
-              {/* Final Score Stat */}
+              {/* Final Score Stat with Multiplier Breakdown */}
               <div
                 className="w-full py-4 px-6 rounded-2xl mb-8 flex items-center justify-around border"
                 style={{
@@ -1023,13 +1060,18 @@ export function TuringTest() {
                 }}
               >
                 <div className="flex flex-col">
-                  <span className="text-xs uppercase tracking-widest text-white/40 font-mono">Final Score</span>
-                  <span className="text-4xl font-black font-mono text-red-400">{score}</span>
+                  <span className="text-[10px] uppercase tracking-widest text-white/40 font-mono">Raw Score</span>
+                  <span className="text-xl font-black font-mono text-white/80">{score}</span>
                 </div>
-                <div className="h-10 w-px bg-white/10" />
+                <div className="h-8 w-px bg-white/10" />
                 <div className="flex flex-col">
-                  <span className="text-xs uppercase tracking-widest text-white/40 font-mono">Rounds Completed</span>
-                  <span className="text-4xl font-black font-mono text-white/80">{currentRound} / {rounds.length}</span>
+                  <span className="text-[10px] uppercase tracking-widest text-red-300 font-mono">Multiplier</span>
+                  <span className="text-xl font-black font-mono text-red-400">{TURING_MULTIPLIERS[difficulty]}x</span>
+                </div>
+                <div className="h-8 w-px bg-white/10" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase tracking-widest text-red-200 font-mono">Leaderboard Pts</span>
+                  <span className="text-2xl font-black font-mono text-red-300">{score * TURING_MULTIPLIERS[difficulty]}</span>
                 </div>
               </div>
 

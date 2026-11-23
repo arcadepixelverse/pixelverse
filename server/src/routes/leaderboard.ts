@@ -118,7 +118,7 @@ leaderboardRouter.post(
   async (req: Request, res: Response) => {
     try {
       const { gameId } = req.params;
-      const { score } = req.body;
+      const { score, difficulty } = req.body;
 
       if (!gameId) {
         return res.status(400).json({ error: 'gameId parameter is required' });
@@ -128,6 +128,8 @@ leaderboardRouter.post(
       if (typeof score === 'undefined' || isNaN(numScore) || numScore < 0) {
         return res.status(400).json({ error: 'score must be a non-negative number' });
       }
+
+      console.log(`[leaderboard] Score submission for ${gameId}: ${numScore} (difficulty: ${difficulty || 'standard'})`);
 
       const userId = req.user!.id;
       const userEmail = req.user!.email;

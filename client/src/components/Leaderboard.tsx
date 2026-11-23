@@ -9,7 +9,13 @@ export interface LeaderboardEntry {
   score: number
 }
 
-export type LeaderboardGame = 'higher_lower' | 'turing_test' | 'cyber_sprint'
+export type LeaderboardGame =
+  | 'higher_lower'
+  | 'turing_test'
+  | 'cyber_sprint'
+  | 'signal_sync'
+  | 'overclock'
+  | 'packet_router'
 
 interface LeaderboardProps {
   isOpen: boolean
@@ -19,7 +25,10 @@ interface LeaderboardProps {
 const TABS: { id: LeaderboardGame; label: string; icon: string }[] = [
   { id: 'higher_lower', label: 'Higher / Lower', icon: '📈' },
   { id: 'turing_test', label: 'Turing Test', icon: '🤖' },
-  { id: 'cyber_sprint', label: 'Cyber Sprint', icon: '⌨️' },
+  { id: 'cyber_sprint', label: 'Cyber Sprint', icon: '⚡' },
+  { id: 'signal_sync', label: 'Signal Sync', icon: '〰️' },
+  { id: 'overclock', label: 'Overclock', icon: '🔥' },
+  { id: 'packet_router', label: 'Packet Router', icon: '🔀' },
 ]
 
 export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
@@ -128,7 +137,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
             </div>
 
             {/* Game Selector Tabs */}
-            <div className="px-6 pt-4 pb-2 flex gap-2 border-b border-white/5 bg-white/[0.02]">
+            <div className="px-6 pt-4 pb-2 flex gap-2 border-b border-white/5 bg-white/[0.02] overflow-x-auto whitespace-nowrap scrollbar-none">
               {TABS.map((tab) => {
                 const isActive = activeTab === tab.id
                 return (
@@ -136,7 +145,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`relative flex-1 py-2.5 px-4 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    className={`relative flex-shrink-0 py-2.5 px-3.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer select-none ${
                       isActive
                         ? 'text-cyan-300 bg-cyan-500/15 border border-cyan-500/40 shadow-[0_0_15px_rgba(0,245,255,0.15)]'
                         : 'text-white/40 hover:text-white/70 bg-transparent border border-transparent'

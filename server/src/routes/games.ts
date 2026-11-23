@@ -33,8 +33,30 @@ function resolveGameKey(path: string): string | null {
   if (normalized.includes('vault')) return 'vault';
   if (normalized.includes('wingman')) return 'wingman';
   if (normalized.includes('cyber-sprint') || normalized.includes('cyber_sprint')) return 'cyber_sprint';
+  if (normalized.includes('signal-sync') || normalized.includes('signal_sync')) return 'signal_sync';
+  if (normalized.includes('overclock')) return 'overclock';
+  if (normalized.includes('packet-router') || normalized.includes('packet_router')) return 'packet_router';
   return null;
 }
+
+/**
+ * Route-specific kill-switch middleware.
+ * Queries Supabase app_settings on every request without caching.
+ */
+export const checkGameStatus = (gameId: string) => async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const gameStatus = await getGameStatus();
+    if (gameStatus[gameId] === false) {
+      return res.status(403).json({
+        error: 'GAME_DISABLED',
+        message: 'This game is offline.',
+      });
+    }
+  } catch (err) {
+    console.warn(`[checkGameStatus] Error verifying status for ${gameId}:`, err);
+  }
+  next();
+};
 
 // ── Global Kill Switch Check (before quotaGate) ──────────────────────────────
 gamesRouter.use(async (req: Request, res: Response, next: NextFunction) => {
@@ -48,7 +70,7 @@ gamesRouter.use(async (req: Request, res: Response, next: NextFunction) => {
     if (gameStatus[gameKey] === false) {
       return res.status(403).json({
         error: 'GAME_DISABLED',
-        message: 'This game has been temporarily disabled by the admin.',
+        message: 'This game is offline.',
       });
     }
   } catch (err) {
@@ -84,6 +106,7 @@ function handleGameError(res: Response, routeName: string, err: any, defaultMsg:
  */
 gamesRouter.post(
   ['/jailbreak/start', '/api/games/jailbreak/start'],
+  checkGameStatus('jailbreak'),
   requireAuth,
   playGate,
   quotaGate,
@@ -152,6 +175,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/jailbreak/turn', '/api/games/jailbreak/turn'],
+  checkGameStatus('jailbreak'),
   requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
@@ -399,6 +423,7 @@ const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
 
 gamesRouter.post(
   ['/higher-lower/generate', '/higher-lower/start', '/api/games/higher-lower/generate', '/api/games/higher-lower/start'],
+  checkGameStatus('higher_lower'),
   requireAuth,
   playGate,
   quotaGate,
@@ -406,6 +431,7 @@ gamesRouter.post(
 );
 gamesRouter.get(
   ['/higher-lower/generate', '/higher-lower/start', '/api/games/higher-lower/generate', '/api/games/higher-lower/start'],
+  checkGameStatus('higher_lower'),
   requireAuth,
   playGate,
   quotaGate,
@@ -421,6 +447,7 @@ gamesRouter.get(
  */
 gamesRouter.post(
   ['/mind-reader/start', '/api/games/mind-reader/start'],
+  checkGameStatus('mind_reader'),
   requireAuth,
   playGate,
   quotaGate,
@@ -476,6 +503,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/mind-reader/ask', '/api/games/mind-reader/ask'],
+  checkGameStatus('mind_reader'),
   requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
@@ -680,6 +708,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/turing-test/generate', '/turing-test/start', '/api/games/turing-test/generate', '/api/games/turing-test/start'],
+  checkGameStatus('turing_test'),
   requireAuth,
   playGate,
   quotaGate,
@@ -776,6 +805,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/survival/start', '/api/games/survival/start'],
+  checkGameStatus('survival'),
   requireAuth,
   playGate,
   quotaGate,
@@ -881,6 +911,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/survival/judge', '/api/games/survival/judge'],
+  checkGameStatus('survival'),
   requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
@@ -920,6 +951,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/vault/chat', '/api/games/vault/chat'],
+  checkGameStatus('vault'),
   requireAuth,
   quotaGate,
   async (req: Request, res: Response) => {
@@ -976,6 +1008,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/wingman/generate', '/wingman/start', '/api/games/wingman/generate', '/api/games/wingman/start'],
+  checkGameStatus('wingman'),
   requireAuth,
   playGate,
   quotaGate,

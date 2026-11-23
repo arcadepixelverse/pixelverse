@@ -84,6 +84,27 @@ const GAME_DEFINITIONS: GameDefinition[] = [
     category: 'REACTION_CORE',
   },
   {
+    id: 'signal_sync',
+    name: 'Signal Sync',
+    codename: 'MOD_SIGNAL_SYNC',
+    desc: 'Oscilloscope harmonic resonance rhythm test',
+    category: 'REACTION_CORE',
+  },
+  {
+    id: 'overclock',
+    name: 'Overclock',
+    codename: 'MOD_CPU_OVERCLOCK',
+    desc: 'Quantum thermal limit push & data banking',
+    category: 'RISK_SYSTEM',
+  },
+  {
+    id: 'packet_router',
+    name: 'Packet Router',
+    codename: 'MOD_PACKET_ROUTER',
+    desc: 'Subnet network packet junction sorting engine',
+    category: 'TACTICAL_NET',
+  },
+  {
     id: 'vault',
     name: 'The Vault',
     codename: 'MOD_VAULT_RESERVE',

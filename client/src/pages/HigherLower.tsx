@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
+import { DifficultySelector, type Difficulty, DIFFICULTY_MULTIPLIERS } from '../components/DifficultySelector'
 
 export interface Question {
   prompt?: string
@@ -53,11 +54,18 @@ const HARDCODED_5_FALLBACK_QUESTIONS: Question[] = [
   },
 ]
 
+const QUESTION_TIMEOUT: Record<Difficulty, number> = {
+  easy: 15,
+  medium: 10,
+  hard: 6,
+}
+
 export function HigherLower() {
+  const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentIndex, setCurrentIndex] = useState<number>(0)
   const [score, setScore] = useState<number>(0)
-  const [gameState, setGameState] = useState<'loading' | 'playing' | 'gameover'>('loading')
+  const [gameState, setGameState] = useState<'select' | 'loading' | 'playing' | 'gameover'>('select')
   const [feedback, setFeedback] = useState<string>('')
   const [selectedCard, setSelectedCard] = useState<'A' | 'B' | null>(null)
   const [cardStatus, setCardStatus] = useState<'correct' | 'wrong' | null>(null)
@@ -65,9 +73,12 @@ export function HigherLower() {
   const [timeLeft, setTimeLeft] = useState<number>(10)
   const [isTimeExpired, setIsTimeExpired] = useState<boolean>(false)
   const hasSubmittedScore = useRef(false)
+  const difficultyRef = useRef<Difficulty>(difficulty)
+  difficultyRef.current = difficulty
 
   // Fetch 10 questions from the backend API with a 4-second safety threshold
-  const fetchQuestions = useCallback(async () => {
+  const fetchQuestions = useCallback(async (selectedDiff?: Difficulty) => {
+    const diff = selectedDiff || difficultyRef.current
     hasSubmittedScore.current = false
     setGameState('loading')
     setFeedback('')
@@ -76,7 +87,8 @@ export function HigherLower() {
     setScore(0)
     setCurrentIndex(0)
     setExplanation('')
-    setTimeLeft(10)
+    const timeout = QUESTION_TIMEOUT[diff]
+    setTimeLeft(timeout)
     setIsTimeExpired(false)
 
     let hasHandled = false
@@ -88,7 +100,7 @@ export function HigherLower() {
         hasHandled = true
         setQuestions([...HARDCODED_5_FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5))
         setGameState('playing')
-        setTimeLeft(10)
+        setTimeLeft(QUESTION_TIMEOUT[difficultyRef.current])
         setIsTimeExpired(false)
       }
     }, 4000)
@@ -130,7 +142,7 @@ export function HigherLower() {
         // Immediately transition once ready
         setQuestions(normalized)
         setGameState('playing')
-        setTimeLeft(10)
+        setTimeLeft(QUESTION_TIMEOUT[difficultyRef.current])
         setIsTimeExpired(false)
         return
       }
@@ -141,17 +153,13 @@ export function HigherLower() {
         console.warn('Backend unavailable, deploying fallback deck:', err)
         setQuestions([...HARDCODED_5_FALLBACK_QUESTIONS].sort(() => Math.random() - 0.5))
         setGameState('playing')
-        setTimeLeft(10)
+        setTimeLeft(QUESTION_TIMEOUT[difficultyRef.current])
         setIsTimeExpired(false)
       }
     }
   }, [])
 
-  useEffect(() => {
-    fetchQuestions()
-  }, [fetchQuestions])
-
-  // 10-second countdown timer per question
+  // Countdown timer per question
   useEffect(() => {
     if (gameState !== 'playing' || selectedCard !== null) return
 
@@ -171,18 +179,21 @@ export function HigherLower() {
     return () => clearInterval(interval)
   }, [gameState, selectedCard, timeLeft])
 
-  // Quietly submit score to leaderboard when game ends
+  // Quietly submit score to leaderboard when game ends with difficulty multiplier
   useEffect(() => {
     if (gameState === 'gameover' && score > 0 && !hasSubmittedScore.current) {
       hasSubmittedScore.current = true
+      const mult = DIFFICULTY_MULTIPLIERS[difficulty]
+      const finalScore = Math.round(score * mult)
       apiFetch('/api/leaderboard/higher_lower', {
         method: 'POST',
-        body: JSON.stringify({ score }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: finalScore, difficulty }),
       }).catch((err) => {
         console.warn('[HigherLower] Quiet leaderboard submit failed:', err)
       })
     }
-  }, [gameState, score])
+  }, [gameState, score, difficulty])
 
   const handleCardClick = (choice: 'A' | 'B') => {
     if (gameState !== 'playing' || selectedCard !== null) return
@@ -208,7 +219,7 @@ export function HigherLower() {
           setSelectedCard(null)
           setCardStatus(null)
           setFeedback('')
-          setTimeLeft(10)
+          setTimeLeft(QUESTION_TIMEOUT[difficultyRef.current])
           setIsTimeExpired(false)
         } else {
           // Cleared all 10 questions!
@@ -310,7 +321,43 @@ export function HigherLower() {
       </div>
 
       {/* ── Main Content Area ── */}
-      <main className="w-full max-w-5xl mx-auto flex-1 flex flex-col items-center justify-center">
+      <main className="w-full max-w-5xl mx-auto flex-1 flex flex-col items-center justify-center" style={{ touchAction: 'manipulation' }}>
+        {/* State 0: Difficulty Selection / Start Screen */}
+        {gameState === 'select' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md flex flex-col items-center text-center p-8 md:p-10 rounded-3xl backdrop-blur-2xl border border-white/10"
+            style={{
+              background: 'rgba(255, 255, 255, 0.04)',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(0, 245, 255, 0.1)',
+            }}
+          >
+            <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center text-3xl mb-4 shadow-[0_0_25px_rgba(0,245,255,0.3)]">
+              📈
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white mb-2">
+              Intuition Trial
+            </h2>
+            <p className="text-xs text-white/50 leading-relaxed mb-6">
+              Compare pairs of real-world quantities. Select the winning metric before the timer expires.
+            </p>
+
+            <div className="w-full mb-6">
+              <DifficultySelector difficulty={difficulty} onChange={setDifficulty} />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => fetchQuestions()}
+              style={{ touchAction: 'manipulation' }}
+              className="w-full py-3.5 px-6 rounded-xl font-bold text-xs uppercase tracking-widest text-black bg-gradient-to-r from-cyan-400 to-green-400 hover:from-cyan-300 hover:to-green-300 shadow-[0_0_25px_rgba(0,245,255,0.4)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+            >
+              COMMENCE RUN ▶
+            </button>
+          </motion.div>
+        )}
+
         {/* State 1: Loading */}
         {gameState === 'loading' && (
           <motion.div
@@ -397,13 +444,14 @@ export function HigherLower() {
                           transition: { duration: 0.5 },
                         }
                     : {
-                        borderColor: 'rgba(0, 245, 255, 0.35)',
-                        boxShadow: '0 0 25px rgba(0, 245, 255, 0.12)',
-                      }
+                          borderColor: 'rgba(0, 245, 255, 0.35)',
+                          boxShadow: '0 0 25px rgba(0, 245, 255, 0.12)',
+                        }
                 }
                 className="group relative flex flex-col justify-between p-8 rounded-2xl text-left border backdrop-blur-xl transition-all duration-300 min-h-[220px] md:min-h-[280px] cursor-pointer"
                 style={{
                   background: 'rgba(255, 255, 255, 0.03)',
+                  touchAction: 'manipulation',
                 }}
               >
                 {/* Header Tag */}
@@ -460,13 +508,14 @@ export function HigherLower() {
                           transition: { duration: 0.5 },
                         }
                     : {
-                        borderColor: 'rgba(191, 90, 242, 0.35)',
-                        boxShadow: '0 0 25px rgba(191, 90, 242, 0.12)',
-                      }
+                          borderColor: 'rgba(191, 90, 242, 0.35)',
+                          boxShadow: '0 0 25px rgba(191, 90, 242, 0.12)',
+                        }
                 }
                 className="group relative flex flex-col justify-between p-8 rounded-2xl text-left border backdrop-blur-xl transition-all duration-300 min-h-[220px] md:min-h-[280px] cursor-pointer"
                 style={{
                   background: 'rgba(255, 255, 255, 0.03)',
+                  touchAction: 'manipulation',
                 }}
               >
                 {/* Header Tag */}
@@ -534,7 +583,7 @@ export function HigherLower() {
                 : 'The AI challenged your intuition.'}
             </p>
 
-            {/* Final Score Stat */}
+            {/* Final Score Stat with Multiplier Breakdown */}
             <div
               className="w-full py-4 px-6 rounded-2xl mb-6 flex items-center justify-around"
               style={{
@@ -543,20 +592,25 @@ export function HigherLower() {
               }}
             >
               <div className="flex flex-col">
-                <span className="text-xs uppercase tracking-widest text-white/40">Final Score</span>
-                <span className="text-3xl font-black font-mono text-cyan-400">{score}</span>
+                <span className="text-[10px] uppercase tracking-widest text-white/40">Raw Score</span>
+                <span className="text-xl font-black font-mono text-white/80">{score} / {questions.length}</span>
               </div>
               <div className="h-8 w-px bg-white/10" />
               <div className="flex flex-col">
-                <span className="text-xs uppercase tracking-widest text-white/40">Total Questions</span>
-                <span className="text-3xl font-black font-mono text-white/80">{questions.length}</span>
+                <span className="text-[10px] uppercase tracking-widest text-cyan-400">Multiplier</span>
+                <span className="text-xl font-black font-mono text-cyan-300">{DIFFICULTY_MULTIPLIERS[difficulty]}x</span>
+              </div>
+              <div className="h-8 w-px bg-white/10" />
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase tracking-widest text-green-400">Final Score</span>
+                <span className="text-2xl font-black font-mono text-green-400">{score * DIFFICULTY_MULTIPLIERS[difficulty]}</span>
               </div>
             </div>
 
             {/* AI Explanation / Analysis */}
             {explanation && (
               <div
-                className="w-full p-4 rounded-xl mb-8 text-left border"
+                className="w-full p-4 rounded-xl mb-6 text-left border"
                 style={{
                   background: 'rgba(191, 90, 242, 0.06)',
                   borderColor: 'rgba(191, 90, 242, 0.25)',
@@ -573,20 +627,31 @@ export function HigherLower() {
             )}
 
             {/* Actions */}
-            <div className="w-full flex flex-col sm:flex-row gap-3">
+            <div className="w-full flex flex-col gap-2.5">
               <button
                 type="button"
-                onClick={fetchQuestions}
-                className="flex-1 py-3.5 px-6 rounded-xl font-bold text-sm uppercase tracking-wider text-black bg-gradient-to-r from-cyan-400 to-green-400 hover:from-cyan-300 hover:to-green-300 shadow-[0_0_25px_rgba(0,245,255,0.4)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+                onClick={() => fetchQuestions()}
+                style={{ touchAction: 'manipulation' }}
+                className="w-full py-3.5 px-6 rounded-xl font-bold text-xs uppercase tracking-wider text-black bg-gradient-to-r from-cyan-400 to-green-400 hover:from-cyan-300 hover:to-green-300 shadow-[0_0_25px_rgba(0,245,255,0.4)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
               >
                 Play Again ↻
               </button>
-              <Link
-                to="/"
-                className="py-3.5 px-6 rounded-xl font-bold text-sm uppercase tracking-wider text-white/70 hover:text-white border border-white/20 hover:border-white/40 backdrop-blur-md transition-all text-center"
-              >
-                Arcade Menu
-              </Link>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGameState('select')}
+                  style={{ touchAction: 'manipulation' }}
+                  className="py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer"
+                >
+                  Difficulty
+                </button>
+                <Link
+                  to="/"
+                  className="py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider text-white/70 hover:text-white border border-white/20 hover:border-white/40 backdrop-blur-md transition-all text-center"
+                >
+                  Arcade Menu
+                </Link>
+              </div>
             </div>
           </motion.div>
         )}

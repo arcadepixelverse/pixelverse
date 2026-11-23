@@ -79,6 +79,30 @@ const GAMES = [
     iconBg: 'rgba(48, 209, 88, 0.12)',
     href: '/games/cyber-sprint',
   },
+  {
+    title: 'Signal Sync',
+    description: 'Lock into the neural frequency. Hit the resonance zone.',
+    icon: '〰️',
+    neonClass: 'neon-cyan',
+    iconBg: 'rgba(0, 245, 255, 0.12)',
+    href: '/games/signal-sync',
+  },
+  {
+    title: 'Overclock',
+    description: 'Push CPU clock speeds to the limit. Bank points before meltdown.',
+    icon: '🔥',
+    neonClass: 'neon-red',
+    iconBg: 'rgba(255, 69, 58, 0.12)',
+    href: '/games/overclock',
+  },
+  {
+    title: 'Packet Router',
+    description: 'Switch routing junctions to direct data packets to matching ports.',
+    icon: '🔀',
+    neonClass: 'neon-purple',
+    iconBg: 'rgba(191, 90, 242, 0.12)',
+    href: '/games/packet-router',
+  },
 ]
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -218,12 +242,12 @@ export function Dashboard() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5, duration: 0.6 }}
           >
-            Six games. One artificial mind. Infinite ways to be surprised.
+            Ten arcade protocols. Zero latency. Infinite ways to test your speed.
           </motion.p>
         </motion.div>
 
         {/* ── Game grid ── */}
-        <div className="w-full max-w-6xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="w-full max-w-6xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {GAMES.map((game, i) => (
             <GameCard key={game.title} {...game} index={i} />
           ))}

@@ -3,30 +3,51 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/apiClient'
 import { Leaderboard } from '../components/Leaderboard'
+import { DifficultySelector, type Difficulty, DIFFICULTY_MULTIPLIERS } from '../components/DifficultySelector'
 
-// ── 100+ Tech & Cyberpunk Word Dictionary ────────────────────────────────────
-const CYBER_WORDS = [
-  'mainframe', 'firewall', 'neural', 'glitch', 'matrix', 'protocol', 'cyber', 'daemon',
-  'overflow', 'crypto', 'kernel', 'payload', 'sandbox', 'vector', 'binary', 'subroutine',
-  'algorithm', 'bandwidth', 'packet', 'trojan', 'compiler', 'proxy', 'firmware', 'exploit',
-  'socket', 'quantum', 'docker', 'cluster', 'hashrate', 'latency', 'recursion', 'synapse',
-  'backdoor', 'rootkit', 'telemetry', 'overclock', 'cyberdeck', 'netrunner', 'darknet',
-  'cyberspace', 'heuristic', 'nanotech', 'biometrics', 'circuit', 'silicon', 'logicgate',
-  'bytecode', 'debugger', 'assembler', 'terminal', 'console', 'pipeline', 'lambda', 'thread',
-  'mutex', 'deadlock', 'stack', 'pointer', 'variable', 'boolean', 'gateway', 'uplink',
-  'downlink', 'firestorm', 'hardwire', 'interface', 'runtime', 'virtual', 'process', 'registry',
-  'segment', 'archive', 'entropy', 'teleport', 'checksum', 'patch', 'phantom', 'spectre',
-  'meltdown', 'token', 'handshake', 'broadcast', 'datagram', 'endpoint', 'bastion', 'zeroday',
-  'cascade', 'hologram', 'nanite', 'nexus', 'override', 'phreak', 'scrambler', 'shodan',
-  'subgrid', 'synaptic', 'vortex', 'wiretap', 'cyborg', 'firmware', 'hypervisor', 'keygen'
-]
+// ── 200 Unique Cyberpunk & Technical Dictionary ──────────────────────────────
+const CYBER_DICTIONARY = {
+  easy: [
+    'bot', 'hex', 'ram', 'cpu', 'bug', 'bit', 'net', 'log', 'key', 'mod', 'dev', 'opt',
+    'arp', 'mac', 'raw', 'hub', 'sub', 'tag', 'dns', 'ip', 'ssh', 'ssl', 'tcp', 'udp',
+    'zip', 'tar', 'root', 'node', 'code', 'chip', 'data', 'byte', 'sync', 'loop', 'ping',
+    'port', 'hack', 'grid', 'host', 'link', 'core', 'dump', 'pipe', 'lock', 'leak', 'zero',
+    'load', 'fork', 'kill', 'null', 'void', 'main', 'bios', 'cron', 'echo', 'grep', 'sudo',
+    'unix', 'bash', 'worm', 'warp', 'nano', 'wire', 'scan', 'cyber', 'proxy', 'stack', 'cache',
+    'array', 'logic', 'patch', 'token', 'trace', 'flash', 'reset', 'pixel', 'route', 'vault',
+    'input', 'pulse', 'laser', 'macro', 'relay', 'spool', 'yield', 'synth', 'drone', 'ghost'
+  ],
+  medium: [
+    'matrix', 'daemon', 'crypto', 'kernel', 'vector', 'binary', 'trojan', 'socket', 'docker',
+    'stream', 'buffer', 'thread', 'lambda', 'router', 'packet', 'uplink', 'phreak', 'shodan',
+    'subgrid', 'cyborg', 'keygen', 'memory', 'server', 'client', 'neural', 'glitch', 'script',
+    'shadow', 'switch', 'beacon', 'filter', 'packet', 'portal', 'sensor', 'shield', 'status',
+    'system', 'engine', 'hazard', 'target', 'module', 'device', 'access', 'attack', 'breach',
+    'bypass', 'cipher', 'cursor', 'damage', 'defend', 'delete', 'direct', 'domain', 'encode',
+    'export', 'finger', 'format', 'freeze', 'impact', 'import', 'insert', 'invoke', 'listen',
+    'locate', 'manual', 'notify', 'output', 'reboot', 'record', 'repair', 'replay', 'resume',
+    'reveal', 'rewind', 'search', 'secure', 'select', 'signal', 'static', 'string', 'submit',
+    'synced', 'unlock', 'update', 'upload', 'verify', 'widget', 'radius', 'payload', 'gateway'
+  ],
+  hard: [
+    'mainframe', 'firewall', 'overflow', 'subroutine', 'algorithm', 'bandwidth', 'compiler',
+    'firmware', 'hypervisor', 'telemetry', 'overclock', 'cyberdeck', 'netrunner', 'cyberspace',
+    'heuristic', 'biometrics', 'logicgate', 'assembler', 'hardwire', 'interface', 'cryptography',
+    'vulnerability', 'infiltrator', 'recursion', 'backdoor', 'datastream', 'encryption', 'decryption',
+    'hexadecimal', 'hypertext', 'intercept', 'malfunction', 'nanotech', 'nanoseconds', 'oscillator',
+    'penetration', 'permission', 'polyglot', 'protocol', 'quarantine', 'realtime', 'resistance',
+    'resolution', 'retrograde', 'sandboxing', 'scrambler', 'simulation', 'stylesheet', 'subroutine',
+    'supernova', 'synchrony', 'technician', 'throughput', 'transistor', 'transmission', 'triangulate',
+    'ultraviolet', 'wavelength', 'wiretapping', 'rootkit', 'zeroday', 'spectre', 'meltdown'
+  ]
+}
 
 interface FallingWord {
   id: string
   text: string
-  x: number // Percentage 5% to 80%
-  y: number // Percentage 0% to 100%
-  speed: number
+  x: number // Horizontal percentage (8% to 78%)
+  y: number // Vertical percentage (0% to 100%)
+  speed: number // % per second
   color: string
 }
 
@@ -38,7 +59,7 @@ interface Explosion {
   points: number
 }
 
-// Retro Web Audio Synthesizer (Zero Assets, Instant Latency)
+// Retro Web Audio Synthesizer (0ms latency, zero assets)
 function playSound(type: 'hit' | 'miss' | 'gameover' | 'start') {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
@@ -52,16 +73,16 @@ function playSound(type: 'hit' | 'miss' | 'gameover' | 'start') {
     const now = ctx.currentTime
     if (type === 'hit') {
       osc.type = 'triangle'
-      osc.frequency.setValueAtTime(440, now)
-      osc.frequency.exponentialRampToValueAtTime(880, now + 0.1)
+      osc.frequency.setValueAtTime(480, now)
+      osc.frequency.exponentialRampToValueAtTime(960, now + 0.1)
       gain.gain.setValueAtTime(0.2, now)
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15)
       osc.start(now)
       osc.stop(now + 0.15)
     } else if (type === 'miss') {
       osc.type = 'sawtooth'
-      osc.frequency.setValueAtTime(180, now)
-      osc.frequency.exponentialRampToValueAtTime(60, now + 0.25)
+      osc.frequency.setValueAtTime(160, now)
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.25)
       gain.gain.setValueAtTime(0.3, now)
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25)
       osc.start(now)
@@ -69,19 +90,19 @@ function playSound(type: 'hit' | 'miss' | 'gameover' | 'start') {
     } else if (type === 'gameover') {
       osc.type = 'sawtooth'
       osc.frequency.setValueAtTime(220, now)
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.6)
-      gain.gain.setValueAtTime(0.4, now)
+      osc.frequency.exponentialRampToValueAtTime(35, now + 0.6)
+      gain.gain.setValueAtTime(0.35, now)
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6)
       osc.start(now)
       osc.stop(now + 0.6)
     } else if (type === 'start') {
       osc.type = 'sine'
       osc.frequency.setValueAtTime(330, now)
-      osc.frequency.exponentialRampToValueAtTime(660, now + 0.2)
-      gain.gain.setValueAtTime(0.25, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2)
+      osc.frequency.exponentialRampToValueAtTime(660, now + 0.18)
+      gain.gain.setValueAtTime(0.2, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18)
       osc.start(now)
-      osc.stop(now + 0.2)
+      osc.stop(now + 0.18)
     }
   } catch {
     // Ignore audio context auto-play limitations
@@ -89,8 +110,10 @@ function playSound(type: 'hit' | 'miss' | 'gameover' | 'start') {
 }
 
 export function CyberSprint() {
+  const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'gameover'>('idle')
-  const [score, setScore] = useState<number>(0)
+  const [baseScore, setBaseScore] = useState<number>(0)
+  const [finalScore, setFinalScore] = useState<number>(0)
   const [lives, setLives] = useState<number>(3)
   const [words, setWords] = useState<FallingWord[]>([])
   const [input, setInput] = useState<string>('')
@@ -107,28 +130,30 @@ export function CyberSprint() {
   const lastTimeRef = useRef<number>(0)
   const lastSpawnTimeRef = useRef<number>(0)
 
-  // References to keep game loop fresh without recreating loop
-  const scoreRef = useRef(score)
-  scoreRef.current = score
-  const livesRef = useRef(lives)
+  // Mutable refs to ensure 60fps loop access without closures
+  const difficultyRef = useRef<Difficulty>(difficulty)
+  difficultyRef.current = difficulty
+  const baseScoreRef = useRef<number>(baseScore)
+  baseScoreRef.current = baseScore
+  const livesRef = useRef<number>(lives)
   livesRef.current = lives
-  const wordsRef = useRef(words)
+  const wordsRef = useRef<FallingWord[]>(words)
   wordsRef.current = words
-  const streakRef = useRef(streak)
+  const streakRef = useRef<number>(streak)
   streakRef.current = streak
 
   // Submit high score to backend leaderboard
-  const submitLeaderboardScore = async (finalScore: number) => {
-    if (finalScore <= 0) return
+  const submitScore = async (scoreToSubmit: number, currentDiff: Difficulty) => {
+    if (scoreToSubmit <= 0) return
     setLeaderboardStatus('Transmitting score to Global Hall of Fame...')
     try {
       const res = await apiFetch('/api/leaderboard/cyber_sprint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: finalScore }),
+        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff }),
       })
       if (res.ok) {
-        setLeaderboardStatus('✓ Score transmitted to Cyber Sprint Leaderboard!')
+        setLeaderboardStatus('✓ Score transmitted to Global Leaderboard!')
       } else {
         setLeaderboardStatus('Score recorded locally.')
       }
@@ -137,21 +162,28 @@ export function CyberSprint() {
     }
   }
 
-  // Trigger game over
-  const triggerGameOver = useCallback((finalScore: number) => {
+  // Trigger Game Over
+  const triggerGameOver = useCallback((rawBaseScore: number, currentDiff: Difficulty) => {
     playSound('gameover')
+    const multiplier = DIFFICULTY_MULTIPLIERS[currentDiff]
+    const calculatedFinal = Math.round(rawBaseScore * multiplier)
+
+    setFinalScore(calculatedFinal)
     setGameState('gameover')
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
       animationFrameRef.current = null
     }
-    submitLeaderboardScore(finalScore)
+
+    submitScore(calculatedFinal, currentDiff)
   }, [])
 
   // Start or Reboot Game
   const startGame = () => {
     playSound('start')
-    setScore(0)
+    setBaseScore(0)
+    setFinalScore(0)
     setLives(3)
     setWords([])
     setInput('')
@@ -163,33 +195,37 @@ export function CyberSprint() {
     setLeaderboardStatus('')
     setGameState('playing')
 
-    lastTimeRef.current = performance.now()
-    lastSpawnTimeRef.current = performance.now()
+    const now = performance.now()
+    lastTimeRef.current = now
+    lastSpawnTimeRef.current = now
 
     setTimeout(() => {
       inputRef.current?.focus()
-    }, 50)
+    }, 60)
   }
 
-  // Spawn a new falling word
+  // Spawn a word matching current difficulty
   const spawnWord = () => {
     const activeTexts = new Set(wordsRef.current.map((w) => w.text))
-    const available = CYBER_WORDS.filter((w) => !activeTexts.has(w))
-    const chosenText = available.length > 0
+    const wordPool = CYBER_DICTIONARY[difficultyRef.current]
+    const available = wordPool.filter((w) => !activeTexts.has(w))
+    const text = available.length > 0
       ? available[Math.floor(Math.random() * available.length)]
-      : CYBER_WORDS[Math.floor(Math.random() * CYBER_WORDS.length)]
+      : wordPool[Math.floor(Math.random() * wordPool.length)]
 
-    // Speed scales with current score
-    const speedMultiplier = 1 + Math.min(scoreRef.current / 350, 3.2)
-    const baseSpeed = (12 + Math.random() * 8) * speedMultiplier // % per second
+    // Speed scaled by difficulty and score
+    const diffSpeedMultiplier =
+      difficultyRef.current === 'easy' ? 0.85 : difficultyRef.current === 'hard' ? 1.6 : 1.15
+    const scoreScaling = 1 + Math.min(baseScoreRef.current / 400, 2.8)
+    const baseSpeed = (10 + Math.random() * 5) * diffSpeedMultiplier * scoreScaling
 
     const colors = ['#00F5FF', '#30D158', '#BF5AF2', '#FF9F0A']
     const color = colors[Math.floor(Math.random() * colors.length)]
 
     const newWord: FallingWord = {
       id: `${Date.now()}-${Math.random()}`,
-      text: chosenText,
-      x: 8 + Math.random() * 72, // Keep within 8% to 80% to avoid clipping
+      text,
+      x: 8 + Math.random() * 70, // Keep comfortably away from borders
       y: 0,
       speed: baseSpeed,
       color,
@@ -198,7 +234,7 @@ export function CyberSprint() {
     setWords((prev) => [...prev, newWord])
   }
 
-  // Main 60fps Game Loop
+  // Robust 60fps Game Loop
   useEffect(() => {
     if (gameState !== 'playing') {
       if (animationFrameRef.current) {
@@ -208,49 +244,49 @@ export function CyberSprint() {
     }
 
     const loop = (currentTime: number) => {
-      const dt = (currentTime - lastTimeRef.current) / 1000 // Delta in seconds
+      // Delta time in seconds, clamped to 0.1 to avoid frame drop teleporting
+      const dt = Math.min((currentTime - lastTimeRef.current) / 1000, 0.1)
       lastTimeRef.current = currentTime
 
-      // Dynamic spawn interval based on current score
-      const currentScore = scoreRef.current
-      const spawnInterval = Math.max(750, 2200 - Math.floor(currentScore / 100) * 110)
+      // Dynamic spawn interval based on difficulty and score
+      const baseInterval =
+        difficultyRef.current === 'easy' ? 2400 : difficultyRef.current === 'hard' ? 1400 : 1850
+      const spawnInterval = Math.max(650, baseInterval - Math.floor(baseScoreRef.current / 120) * 110)
 
       if (currentTime - lastSpawnTimeRef.current > spawnInterval) {
         spawnWord()
         lastSpawnTimeRef.current = currentTime
       }
 
-      // Update positions of falling words
-      const updatedWords: FallingWord[] = []
+      // Update positions
+      const updated: FallingWord[] = []
       let breached = false
 
       for (const w of wordsRef.current) {
         const nextY = w.y + w.speed * dt
-
-        // Check if word hit the laser line (bottom of play area)
         if (nextY >= 88) {
           breached = true
         } else {
-          updatedWords.push({ ...w, y: nextY })
+          updated.push({ ...w, y: nextY })
         }
       }
 
       if (breached) {
         playSound('miss')
         setIsGlitching(true)
-        setTimeout(() => setIsGlitching(false), 300)
+        setTimeout(() => setIsGlitching(false), 280)
 
-        const remainingLives = livesRef.current - 1
-        setLives(remainingLives)
+        const remaining = livesRef.current - 1
+        setLives(remaining)
         setStreak(0)
 
-        if (remainingLives <= 0) {
-          triggerGameOver(scoreRef.current)
+        if (remaining <= 0) {
+          triggerGameOver(baseScoreRef.current, difficultyRef.current)
           return
         }
       }
 
-      setWords(updatedWords)
+      setWords(updated)
       animationFrameRef.current = requestAnimationFrame(loop)
     }
 
@@ -271,7 +307,7 @@ export function CyberSprint() {
     const typedClean = rawVal.trim().toLowerCase()
     if (!typedClean) return
 
-    // Find if typed string matches any active word
+    // Find if typed string matches any active falling word
     const matchedIndex = words.findIndex((w) => w.text.toLowerCase() === typedClean)
 
     if (matchedIndex !== -1) {
@@ -280,10 +316,10 @@ export function CyberSprint() {
 
       // Calculate score with streak bonus
       const wordPoints = matchedWord.text.length * 10 + streakRef.current * 5
-      const newScore = score + wordPoints
+      const newScore = baseScore + wordPoints
       const newStreak = streak + 1
 
-      setScore(newScore)
+      setBaseScore(newScore)
       setStreak(newStreak)
       if (newStreak > maxStreak) {
         setMaxStreak(newStreak)
@@ -303,10 +339,10 @@ export function CyberSprint() {
         },
       ])
 
-      // Auto-remove explosion after 600ms
+      // Auto-remove explosion after 550ms
       setTimeout(() => {
         setExplosions((prev) => prev.filter((exp) => exp.id !== explosionId))
-      }, 600)
+      }, 550)
 
       // Remove destroyed word and reset input
       setWords((prev) => prev.filter((_, idx) => idx !== matchedIndex))
@@ -317,40 +353,41 @@ export function CyberSprint() {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
-      // If user pressed Enter or Space without matching, clear input to help them retype fast
       setInput('')
     }
   }
 
+  const currentMultiplier = DIFFICULTY_MULTIPLIERS[difficulty]
+
   return (
     <div
       onClick={() => inputRef.current?.focus()}
+      style={{ touchAction: 'manipulation' }}
       className={`relative z-10 min-h-screen flex flex-col font-mono selection:bg-green-500/30 selection:text-green-200 transition-colors ${
         isGlitching ? 'bg-red-950/40' : 'bg-transparent'
       }`}
     >
       {/* ── Top HUD ── */}
-      <header className="px-6 py-4 flex items-center justify-between border-b border-green-500/20 backdrop-blur-md bg-black/40">
-        <div className="flex items-center gap-3">
+      <header className="px-4 py-3 sm:px-6 sm:py-4 flex items-center justify-between border-b border-green-500/20 backdrop-blur-md bg-black/40 flex-wrap gap-2">
+        <div className="flex items-center gap-2.5">
           <Link
             to="/"
             className="flex items-center gap-1.5 text-xs uppercase tracking-widest text-green-400/60 hover:text-green-300 transition-colors"
           >
-            <span>‹ ARCADE_ROOT</span>
+            <span>‹ ARCADE</span>
           </Link>
           <span className="text-green-500/30">/</span>
           <span className="text-xs font-black tracking-widest uppercase text-green-400">
             CYBER SPRINT
           </span>
           <span className="text-[10px] px-2 py-0.5 rounded bg-green-500/10 border border-green-500/30 text-green-300">
-            ZERO_API
+            {difficulty.toUpperCase()} {currentMultiplier}x
           </span>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Lives Indicator */}
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-red-500/30 bg-red-500/10 text-xs">
-            <span className="text-[10px] text-red-400/70 mr-1 uppercase">GRID INTEGRITY:</span>
+          <div className="flex items-center gap-1 px-2.5 py-1 rounded-full border border-red-500/30 bg-red-500/10 text-xs">
             {[1, 2, 3].map((heartIndex) => (
               <span
                 key={heartIndex}
@@ -366,9 +403,9 @@ export function CyberSprint() {
           </div>
 
           {/* Current Score */}
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full border border-green-500/30 bg-green-500/10 text-xs text-green-300 font-bold">
-            <span className="text-white/40 uppercase text-[10px]">SCORE:</span>
-            <span className="text-sm tracking-wider">{score}</span>
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-green-500/30 bg-green-500/10 text-xs text-green-300 font-bold">
+            <span className="text-white/40 uppercase text-[10px]">PTS:</span>
+            <span className="text-sm tracking-wider">{Math.round(baseScore * currentMultiplier)}</span>
           </div>
 
           {/* Streak Indicator */}
@@ -378,8 +415,7 @@ export function CyberSprint() {
               animate={{ scale: 1, opacity: 1 }}
               className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-full border border-amber-400/30 bg-amber-400/10 text-xs text-amber-300 font-bold"
             >
-              <span>🔥</span>
-              <span>{streak}x STREAK</span>
+              <span>🔥 {streak}x</span>
             </motion.div>
           )}
 
@@ -392,19 +428,19 @@ export function CyberSprint() {
             }}
             className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border border-amber-400/30 transition-all cursor-pointer"
           >
-            🏆 RANKS
+            🏆
           </button>
         </div>
       </header>
 
       {/* ── Main Arcade Playfield ── */}
-      <main className="flex-1 flex flex-col items-center justify-between p-4 max-w-5xl w-full mx-auto relative overflow-hidden">
+      <main className="flex-1 flex flex-col items-center justify-between p-3 sm:p-4 max-w-5xl w-full mx-auto relative overflow-hidden">
         {/* ── START SCREEN (IDLE) ── */}
         {gameState === 'idle' && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="my-auto max-w-md w-full p-8 rounded-3xl border border-green-500/40 bg-black/80 backdrop-blur-2xl shadow-[0_0_60px_rgba(48,209,88,0.15)] text-center flex flex-col items-center gap-5"
+            className="my-auto max-w-md w-full p-6 sm:p-8 rounded-3xl border border-green-500/40 bg-black/85 backdrop-blur-2xl shadow-[0_0_60px_rgba(48,209,88,0.15)] text-center flex flex-col items-center gap-5"
           >
             <div className="w-16 h-16 rounded-2xl bg-green-500/15 border border-green-500/40 flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(48,209,88,0.3)]">
               ⌨️
@@ -419,28 +455,20 @@ export function CyberSprint() {
               </p>
             </div>
 
-            <p className="text-xs text-white/70 leading-relaxed font-sans">
-              Words stream down through the memory matrix. Neutralize them by typing before they breach the firewall tripwire at the bottom.
-            </p>
+            {/* Tactical Difficulty Selector */}
+            <DifficultySelector
+              difficulty={difficulty}
+              onChange={setDifficulty}
+            />
 
-            <div className="w-full grid grid-cols-3 gap-2 py-3 border-y border-green-500/20 text-[11px] text-green-400/80">
-              <div>
-                <span className="block text-white/40 text-[9px]">LIVES</span>
-                <span className="font-bold text-red-400">3 CHANCES</span>
-              </div>
-              <div>
-                <span className="block text-white/40 text-[9px]">SPEED</span>
-                <span className="font-bold text-cyan-300">SCALING</span>
-              </div>
-              <div>
-                <span className="block text-white/40 text-[9px]">NETWORK</span>
-                <span className="font-bold text-green-300">0% LATENCY</span>
-              </div>
-            </div>
+            <p className="text-xs text-white/70 leading-relaxed font-sans">
+              Neutralize falling data streams by typing exact matches before they breach the firewall perimeter.
+            </p>
 
             <button
               type="button"
               onClick={startGame}
+              style={{ touchAction: 'manipulation' }}
               className="w-full py-3.5 rounded-2xl bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 hover:border-green-400 text-green-300 font-bold text-sm tracking-widest uppercase transition-all shadow-[0_0_25px_rgba(48,209,88,0.3)] cursor-pointer"
             >
               INITIALIZE SPRINT ⚡
@@ -450,7 +478,7 @@ export function CyberSprint() {
 
         {/* ── ACTIVE GAME FIELD ── */}
         {gameState === 'playing' && (
-          <div className="w-full flex-1 relative overflow-hidden rounded-2xl border border-green-500/20 bg-black/60 shadow-inner flex flex-col justify-end">
+          <div className="w-full flex-1 relative overflow-hidden rounded-2xl border border-green-500/20 bg-black/60 shadow-inner flex flex-col justify-end min-h-[420px] sm:min-h-[500px]">
             {/* Background Grid Lines */}
             <div
               className="absolute inset-0 opacity-15 pointer-events-none"
@@ -467,12 +495,8 @@ export function CyberSprint() {
                 const cleanInput = input.trim().toLowerCase()
                 const isTargeted =
                   cleanInput.length > 0 && word.text.toLowerCase().startsWith(cleanInput)
-                const matchedPrefix = isTargeted
-                  ? word.text.slice(0, cleanInput.length)
-                  : ''
-                const remainingText = isTargeted
-                  ? word.text.slice(cleanInput.length)
-                  : word.text
+                const matchedPrefix = isTargeted ? word.text.slice(0, cleanInput.length) : ''
+                const remainingText = isTargeted ? word.text.slice(cleanInput.length) : word.text
 
                 return (
                   <div
@@ -512,7 +536,7 @@ export function CyberSprint() {
                     initial={{ scale: 0.5, opacity: 1 }}
                     animate={{ scale: 1.8, opacity: 0 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.55, ease: 'easeOut' }}
+                    transition={{ duration: 0.5, ease: 'easeOut' }}
                     className="absolute pointer-events-none flex flex-col items-center"
                     style={{
                       left: `${exp.x}%`,
@@ -520,10 +544,9 @@ export function CyberSprint() {
                       transform: 'translate(-50%, -50%)',
                     }}
                   >
-                    {/* Shockwave circle */}
                     <div className="w-12 h-12 rounded-full border-2 border-green-400 shadow-[0_0_30px_rgba(48,209,88,0.9)] animate-ping" />
                     <span className="text-xs font-black text-green-300 tracking-wider mt-1 drop-shadow-[0_0_10px_rgba(48,209,88,1)]">
-                      +{exp.points}
+                      +{exp.points * currentMultiplier}
                     </span>
                   </motion.div>
                 ))}
@@ -531,7 +554,7 @@ export function CyberSprint() {
             </div>
 
             {/* Laser Tripwire Warning Line */}
-            <div className="w-full h-1 bg-red-500/60 shadow-[0_0_15px_rgba(255,55,95,0.8)] relative z-10 flex items-center justify-between px-4">
+            <div className="w-full h-1 bg-red-500/60 shadow-[0_0_15px_rgba(255,55,95,0.8)] relative z-10 flex items-center justify-between px-3 sm:px-4">
               <span className="text-[9px] text-red-400/80 uppercase tracking-widest bg-black px-1.5 py-0.5 rounded -translate-y-3">
                 FIREWALL PERIMETER
               </span>
@@ -547,7 +570,7 @@ export function CyberSprint() {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="my-auto max-w-md w-full p-8 rounded-3xl border border-red-500/50 bg-black/90 backdrop-blur-2xl shadow-[0_0_70px_rgba(255,55,95,0.25)] text-center flex flex-col items-center gap-5"
+            className="my-auto max-w-md w-full p-6 sm:p-8 rounded-3xl border border-red-500/50 bg-black/90 backdrop-blur-2xl shadow-[0_0_70px_rgba(255,55,95,0.25)] text-center flex flex-col items-center gap-5"
           >
             <div className="w-16 h-16 rounded-2xl bg-red-500/15 border border-red-500/40 flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(255,55,95,0.3)]">
               💥
@@ -558,17 +581,21 @@ export function CyberSprint() {
                 GRID BREACHED // SYSTEM DOWN
               </h2>
               <p className="text-xs text-red-400/70 uppercase tracking-widest">
-                NEURAL OVERFLOW THRESHOLD EXCEEDED
+                DIFFICULTY: {difficulty.toUpperCase()} ({currentMultiplier}x MULTIPLIER)
               </p>
             </div>
 
             {/* Scorecard */}
-            <div className="w-full p-5 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col gap-3">
+            <div className="w-full p-5 rounded-2xl bg-white/[0.03] border border-white/10 flex flex-col gap-2.5">
               <div className="flex justify-between items-baseline border-b border-white/5 pb-2">
                 <span className="text-xs uppercase text-white/50">Final Score</span>
                 <span className="text-3xl font-black text-green-300 font-mono tracking-tight">
-                  {score}
+                  {finalScore}
                 </span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-white/50 uppercase">Base Score</span>
+                <span className="font-bold text-white/70">{baseScore}</span>
               </div>
               <div className="flex justify-between items-center text-xs">
                 <span className="text-white/50 uppercase">Words Neutralized</span>
@@ -591,6 +618,7 @@ export function CyberSprint() {
               <button
                 type="button"
                 onClick={startGame}
+                style={{ touchAction: 'manipulation' }}
                 className="w-full py-3.5 rounded-2xl bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 hover:border-green-400 text-green-300 font-bold text-sm tracking-widest uppercase transition-all shadow-[0_0_20px_rgba(48,209,88,0.25)] cursor-pointer"
               >
                 REBOOT SPRINT ↻
@@ -600,6 +628,7 @@ export function CyberSprint() {
                 <button
                   type="button"
                   onClick={() => setIsLeaderboardOpen(true)}
+                  style={{ touchAction: 'manipulation' }}
                   className="flex-1 py-2.5 rounded-xl bg-amber-400/10 hover:bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
                 >
                   🏆 LEADERBOARD
@@ -615,9 +644,9 @@ export function CyberSprint() {
           </motion.div>
         )}
 
-        {/* ── Glowing Input Bar (Always active during play) ── */}
+        {/* ── Glowing Input Bar ── */}
         {gameState === 'playing' && (
-          <div className="w-full pt-4 flex flex-col items-center gap-2 z-20">
+          <div className="w-full pt-3 flex flex-col items-center gap-2 z-20">
             <div className="w-full max-w-lg relative">
               <input
                 ref={inputRef}
@@ -627,14 +656,15 @@ export function CyberSprint() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder="TYPE FALLING CODE..."
-                className="w-full py-3.5 px-6 rounded-2xl bg-black/90 border-2 border-green-500/60 focus:border-green-400 focus:shadow-[0_0_30px_rgba(48,209,88,0.4)] text-green-300 placeholder:text-green-500/30 text-center text-lg font-mono font-bold tracking-widest outline-none transition-all"
+                style={{ touchAction: 'manipulation' }}
+                className="w-full py-3 px-5 sm:py-3.5 sm:px-6 rounded-2xl bg-black/90 border-2 border-green-500/60 focus:border-green-400 focus:shadow-[0_0_30px_rgba(48,209,88,0.4)] text-green-300 placeholder:text-green-500/30 text-center text-base sm:text-lg font-mono font-bold tracking-widest outline-none transition-all"
               />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-green-500/40 pointer-events-none">
+              <span className="hidden sm:inline absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-green-500/40 pointer-events-none">
                 AUTO_DESTROY
               </span>
             </div>
-            <p className="text-[10px] text-white/30 uppercase tracking-widest">
-              Type the exact word to neutralize it • Press space or enter to clear
+            <p className="text-[10px] text-white/30 uppercase tracking-widest text-center">
+              Type exact word to neutralize • Space/Enter to clear
             </p>
           </div>
         )}

@@ -8,6 +8,9 @@ import { SurvivalProtocol } from './pages/SurvivalProtocol'
 import { Vault } from './pages/Vault'
 import { Wingman } from './pages/Wingman'
 import { CyberSprint } from './pages/CyberSprint'
+import { SignalSync } from './pages/SignalSync'
+import { Overclock } from './pages/Overclock'
+import { PacketRouter } from './pages/PacketRouter'
 import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
 import { AdminConsole } from './pages/AdminConsole'
@@ -100,6 +103,30 @@ function App() {
           element={
             <ProtectedRoute>
               <CyberSprint />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/signal-sync"
+          element={
+            <ProtectedRoute>
+              <SignalSync />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/overclock"
+          element={
+            <ProtectedRoute>
+              <Overclock />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/games/packet-router"
+          element={
+            <ProtectedRoute>
+              <PacketRouter />
             </ProtectedRoute>
           }
         />

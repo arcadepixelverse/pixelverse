@@ -12,6 +12,9 @@ export const DEFAULT_GAME_STATUS: GameStatusMap = {
   survival: true,
   wingman: true,
   cyber_sprint: true,
+  signal_sync: true,
+  overclock: true,
+  packet_router: true,
   vault: false,
 };
 
