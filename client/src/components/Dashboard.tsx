@@ -95,14 +95,6 @@ const GAMES = [
     iconBg: 'rgba(255, 69, 58, 0.12)',
     href: '/games/overclock',
   },
-  {
-    title: 'Packet Router',
-    description: 'Switch routing junctions to direct data packets to matching ports.',
-    icon: '🔀',
-    neonClass: 'neon-purple',
-    iconBg: 'rgba(191, 90, 242, 0.12)',
-    href: '/games/packet-router',
-  },
 ]
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

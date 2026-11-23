@@ -15,7 +15,6 @@ export type LeaderboardGame =
   | 'cyber_sprint'
   | 'signal_sync'
   | 'overclock'
-  | 'packet_router'
 
 interface LeaderboardProps {
   isOpen: boolean
@@ -28,7 +27,6 @@ const TABS: { id: LeaderboardGame; label: string; icon: string }[] = [
   { id: 'cyber_sprint', label: 'Cyber Sprint', icon: '⚡' },
   { id: 'signal_sync', label: 'Signal Sync', icon: '〰️' },
   { id: 'overclock', label: 'Overclock', icon: '🔥' },
-  { id: 'packet_router', label: 'Packet Router', icon: '🔀' },
 ]
 
 export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {

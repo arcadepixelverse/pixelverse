@@ -35,7 +35,6 @@ function resolveGameKey(path: string): string | null {
   if (normalized.includes('cyber-sprint') || normalized.includes('cyber_sprint')) return 'cyber_sprint';
   if (normalized.includes('signal-sync') || normalized.includes('signal_sync')) return 'signal_sync';
   if (normalized.includes('overclock')) return 'overclock';
-  if (normalized.includes('packet-router') || normalized.includes('packet_router')) return 'packet_router';
   return null;
 }
 

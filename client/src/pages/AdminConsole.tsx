@@ -98,13 +98,6 @@ const GAME_DEFINITIONS: GameDefinition[] = [
     category: 'RISK_SYSTEM',
   },
   {
-    id: 'packet_router',
-    name: 'Packet Router',
-    codename: 'MOD_PACKET_ROUTER',
-    desc: 'Subnet network packet junction sorting engine',
-    category: 'TACTICAL_NET',
-  },
-  {
     id: 'vault',
     name: 'The Vault',
     codename: 'MOD_VAULT_RESERVE',

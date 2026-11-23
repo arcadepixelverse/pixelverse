@@ -9,10 +9,13 @@ interface AuthContextType {
   loading: boolean
   accessToken: string | null
   todayUsage: number
+  totalPlays: number
   signIn: (email: string, password: string) => Promise<AuthResponse>
   signUp: (email: string, password: string) => Promise<AuthResponse>
   signOut: () => Promise<void>
   refreshUsage: () => Promise<void>
+  refreshQuota: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -22,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [todayUsage, setTodayUsage] = useState<number>(0)
+  const [totalPlays, setTotalPlays] = useState<number>(0)
 
   const fetchUsage = async (token: string) => {
     try {
@@ -35,12 +39,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(null)
         setUser(null)
         setTodayUsage(0)
+        setTotalPlays(0)
         return
       }
       if (res.ok) {
         const data = await res.json()
         if (typeof data.todayUsage === 'number') {
           setTodayUsage(data.todayUsage)
+        }
+        if (typeof data.total_plays === 'number') {
+          setTotalPlays(data.total_plays)
         }
       }
     } catch (err) {
@@ -74,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         fetchUsage(currentSession.access_token)
       } else {
         setTodayUsage(0)
+        setTotalPlays(0)
       }
     })
 
@@ -84,7 +93,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const signIn = async (email: string, password: string) => {
-    return await supabase.auth.signInWithPassword({ email, password })
+    const res = await supabase.auth.signInWithPassword({ email, password })
+    if (!res.error && res.data.session) {
+      try {
+        await supabase.auth.signOut({ scope: 'others' })
+      } catch (err) {
+        console.warn('[AuthContext] Failed to terminate remote sessions:', err)
+      }
+    }
+    return res
   }
 
   const signUp = async (email: string, password: string) => {
@@ -96,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null)
     setUser(null)
     setTodayUsage(0)
+    setTotalPlays(0)
   }
 
   const refreshUsage = async () => {
@@ -113,12 +131,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       accessToken,
       todayUsage,
+      totalPlays,
       signIn,
       signUp,
       signOut,
       refreshUsage,
+      refreshQuota: refreshUsage,
+      refreshUser: refreshUsage,
     }),
-    [user, session, loading, accessToken, todayUsage]
+    [user, session, loading, accessToken, todayUsage, totalPlays]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

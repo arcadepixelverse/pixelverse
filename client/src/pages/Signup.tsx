@@ -35,8 +35,22 @@ export function Signup() {
     try {
       const { data, error: authError } = await signUp(email.trim(), password)
       if (authError) {
-        setError(authError.message)
-      } else if (data.session) {
+        const errorMsg = (authError.message || '').toLowerCase()
+        const isDuplicate =
+          (authError as any).status === 422 ||
+          errorMsg.includes('already registered') ||
+          errorMsg.includes('already exists') ||
+          errorMsg.includes('user already registered')
+
+        if (isDuplicate) {
+          setError('Email already exists.')
+        } else {
+          setError(authError.message)
+        }
+      } else if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        // Supabase returns user with empty identities when user already exists
+        setError('Email already exists.')
+      } else if (data?.session) {
         navigate('/', { replace: true })
       } else {
         // Confirmation email sent

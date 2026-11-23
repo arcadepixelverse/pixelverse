@@ -41,6 +41,13 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
+// Global no-cache headers (prevents proxy, CDN, and browser caching)
+app.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    next();
+});
 // ── Routes ────────────────────────────────────────────────────────────────────
 /** Health check — used by deploy platforms & load balancers */
 app.get('/health', (_req, res) => {
@@ -54,26 +61,37 @@ app.get('/api', (_req, res) => {
         message: 'Welcome to the arcade. 🕹️',
     });
 });
-/** Authenticated User Profile & Daily Usage */
+/** Authenticated User Profile, Daily Usage & Play Count */
 app.get('/api/auth/me', requireAuth_1.requireAuth, async (req, res) => {
     try {
         const userId = req.user.id;
         const email = req.user.email;
         const today = new Date().toISOString().split('T')[0];
-        const { data, error } = await supabase_1.supabaseAdmin
-            .from('daily_usage')
-            .select('ai_calls_count')
-            .eq('user_id', userId)
-            .eq('usage_date', today)
-            .maybeSingle();
-        if (error) {
-            console.error('[auth/me] Error querying daily_usage:', error);
-            return res.json({ id: userId, email, todayUsage: 0 });
+        const [dailyRes, profileRes] = await Promise.all([
+            supabase_1.supabaseAdmin
+                .from('daily_usage')
+                .select('ai_calls_count')
+                .eq('user_id', userId)
+                .eq('usage_date', today)
+                .maybeSingle(),
+            supabase_1.supabaseAdmin
+                .from('profiles')
+                .select('total_plays, is_banned')
+                .eq('id', userId)
+                .maybeSingle(),
+        ]);
+        if (dailyRes.error) {
+            console.error('[auth/me] Error querying daily_usage:', dailyRes.error);
+        }
+        if (profileRes.error) {
+            console.error('[auth/me] Error querying profiles:', profileRes.error);
         }
         return res.json({
             id: userId,
             email,
-            todayUsage: data?.ai_calls_count || 0,
+            todayUsage: dailyRes.data?.ai_calls_count || 0,
+            total_plays: profileRes.data?.total_plays ?? 0,
+            is_banned: profileRes.data?.is_banned ?? false,
         });
     }
     catch (err) {

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Dashboard } from './components/Dashboard'
 import { HigherLower } from './pages/HigherLower'
@@ -10,13 +11,19 @@ import { Wingman } from './pages/Wingman'
 import { CyberSprint } from './pages/CyberSprint'
 import { SignalSync } from './pages/SignalSync'
 import { Overclock } from './pages/Overclock'
-import { PacketRouter } from './pages/PacketRouter'
 import { Login } from './pages/Login'
 import { Signup } from './pages/Signup'
 import { AdminConsole } from './pages/AdminConsole'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 function App() {
+  const [isBanned, setIsBanned] = useState(false)
+
+  useEffect(() => {
+    const handleBanned = () => setIsBanned(true)
+    window.addEventListener('pixelverse:user-banned', handleBanned)
+    return () => window.removeEventListener('pixelverse:user-banned', handleBanned)
+  }, [])
   return (
     <BrowserRouter>
       {/* Animated mesh gradient background */}
@@ -123,14 +130,6 @@ function App() {
           }
         />
         <Route
-          path="/games/packet-router"
-          element={
-            <ProtectedRoute>
-              <PacketRouter />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/admin"
           element={
             <ProtectedRoute>
@@ -139,6 +138,41 @@ function App() {
           }
         />
       </Routes>
+
+      {/* Uncloseable Full-Screen Ban Modal at z-[9999] */}
+      {isBanned && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 bg-black/95 backdrop-blur-2xl select-none">
+          <div
+            style={{
+              background: 'rgba(18, 5, 8, 0.98)',
+              border: '2px solid rgba(255, 55, 95, 0.8)',
+              boxShadow: '0 0 80px rgba(255, 55, 95, 0.45)',
+            }}
+            className="max-w-lg w-full rounded-3xl p-8 sm:p-10 text-center text-white relative pointer-events-auto"
+          >
+            <div className="w-20 h-20 mx-auto mb-6 rounded-3xl flex items-center justify-center bg-red-500/20 border-2 border-red-500/60 text-4xl shadow-[0_0_35px_rgba(255,55,95,0.6)] animate-pulse">
+              ⛔
+            </div>
+            <h2
+              style={{ fontFamily: 'monospace', letterSpacing: '0.15em' }}
+              className="text-xl sm:text-2xl font-black uppercase text-red-500 mb-4 leading-tight"
+            >
+              TERMINAL LOCKOUT // ACCESS REVOKED
+            </h2>
+            <div className="p-4 rounded-xl bg-red-950/30 border border-red-500/30 mb-6">
+              <p
+                style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}
+                className="text-sm font-bold text-red-200 leading-relaxed uppercase"
+              >
+                YOUR ID IS SUSPENDED BY THE OWNER DUE TO UNWANTED BEHAVIOR.
+              </p>
+            </div>
+            <p style={{ fontFamily: 'monospace' }} className="text-xs text-white/40 tracking-wider">
+              SYSTEM STATUS: PERMANENTLY LOCKED • CLEARANCE VOID
+            </p>
+          </div>
+        </div>
+      )}
     </BrowserRouter>
   )
 }

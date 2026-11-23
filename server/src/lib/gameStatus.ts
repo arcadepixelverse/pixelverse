@@ -14,7 +14,6 @@ export const DEFAULT_GAME_STATUS: GameStatusMap = {
   cyber_sprint: true,
   signal_sync: true,
   overclock: true,
-  packet_router: true,
   vault: false,
 };
 

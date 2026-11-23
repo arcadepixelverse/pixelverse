@@ -57,10 +57,10 @@ export async function apiFetch(
     }
   }
 
-  // Initial fetch with no-store cache to prevent browser caching
+  // Initial fetch with no-store cache to prevent browser caching (cannot be overridden by options)
   let response = await fetch(url, {
-    cache: 'no-store',
     ...options,
+    cache: 'no-store',
     headers: buildHeaders(token),
   })
 
@@ -72,8 +72,8 @@ export async function apiFetch(
       if (!refreshError && refreshData.session?.access_token) {
         token = refreshData.session.access_token
         response = await fetch(url, {
-          cache: 'no-store',
           ...options,
+          cache: 'no-store',
           headers: buildHeaders(token),
         })
       }
@@ -88,7 +88,23 @@ export async function apiFetch(
     }
   }
 
-  // 3. On 429: Check for PLAY_LIMIT_REACHED and display modal
+  // 3. On 403: Intercept USER_BANNED
+  if (response.status === 403) {
+    try {
+      const cloned = response.clone()
+      const data = await cloned.json()
+      if (data?.error === 'USER_BANNED') {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('pixelverse:user-banned'))
+        }
+        showUserBannedModal()
+      }
+    } catch {
+      // ignore json parse errors
+    }
+  }
+
+  // 4. On 429: Check for PLAY_LIMIT_REACHED and display modal
   if (response.status === 429) {
     try {
       const cloned = response.clone()
@@ -148,6 +164,39 @@ export function showPlayLimitModal() {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) cleanup()
   })
+}
+
+/**
+ * Injects an uncloseable full-screen blocking modal when the user is banned.
+ */
+export function showUserBannedModal() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById('pixelverse-user-banned-modal')) return
+
+  const modal = document.createElement('div')
+  modal.id = 'pixelverse-user-banned-modal'
+  modal.className =
+    'fixed inset-0 z-[99999] flex items-center justify-center p-6 bg-black/95 backdrop-blur-2xl select-none'
+  modal.innerHTML = `
+    <div style="background: rgba(18, 5, 8, 0.98); border: 2px solid rgba(255, 55, 95, 0.8); box-shadow: 0 0 80px rgba(255, 55, 95, 0.45);" class="max-w-lg w-full rounded-3xl p-8 sm:p-10 text-center text-white relative">
+      <div class="w-20 h-20 mx-auto mb-6 rounded-3xl flex items-center justify-center bg-red-500/20 border-2 border-red-500/60 text-4xl shadow-[0_0_35px_rgba(255,55,95,0.6)] animate-pulse">
+        ⛔
+      </div>
+      <h2 style="font-family: monospace; letter-spacing: 0.15em;" class="text-xl sm:text-2xl font-black uppercase text-red-500 mb-4 leading-tight">
+        TERMINAL LOCKOUT // ACCESS REVOKED
+      </h2>
+      <div class="p-4 rounded-xl bg-red-950/30 border border-red-500/30 mb-6">
+        <p style="font-family: monospace; letter-spacing: 0.05em;" class="text-sm font-bold text-red-200 leading-relaxed uppercase">
+          YOUR ID IS SUSPENDED BY THE OWNER DUE TO UNWANTED BEHAVIOR.
+        </p>
+      </div>
+      <p style="font-family: monospace;" class="text-xs text-white/40 tracking-wider">
+        SYSTEM STATUS: PERMANENTLY LOCKED • CLEARANCE VOID
+      </p>
+    </div>
+  `
+
+  document.body.appendChild(modal)
 }
 
 /**
