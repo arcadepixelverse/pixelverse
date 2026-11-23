@@ -57,8 +57,9 @@ export async function apiFetch(
     }
   }
 
-  // Initial fetch
+  // Initial fetch with no-store cache to prevent browser caching
   let response = await fetch(url, {
+    cache: 'no-store',
     ...options,
     headers: buildHeaders(token),
   })
@@ -71,6 +72,7 @@ export async function apiFetch(
       if (!refreshError && refreshData.session?.access_token) {
         token = refreshData.session.access_token
         response = await fetch(url, {
+          cache: 'no-store',
           ...options,
           headers: buildHeaders(token),
         })

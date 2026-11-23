@@ -13,16 +13,6 @@ declare global {
   }
 }
 
-interface CachedToken {
-  userId: string;
-  email?: string;
-  expiresAt: number;
-}
-
-// In-memory token cache with 60s TTL
-const tokenCache = new Map<string, CachedToken>();
-const CACHE_TTL_MS = 60 * 1000;
-
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -36,29 +26,16 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 
   let user: { id: string; email?: string } | null = null;
 
-  // Check in-memory cache
-  const cached = tokenCache.get(token);
-  if (cached && cached.expiresAt > Date.now()) {
-    user = { id: cached.userId, email: cached.email };
-  } else {
-    try {
-      const { data, error } = await supabaseAuth.auth.getUser(token);
-      if (error || !data?.user) {
-        return res.status(401).json({ error: 'invalid_token' });
-      }
-
-      user = { id: data.user.id, email: data.user.email };
-
-      // Cache valid token
-      tokenCache.set(token, {
-        userId: data.user.id,
-        email: data.user.email,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-      });
-    } catch (err: any) {
-      console.error('[requireAuth] Unexpected error validating token:', err);
+  try {
+    const { data, error } = await supabaseAuth.auth.getUser(token);
+    if (error || !data?.user) {
       return res.status(401).json({ error: 'invalid_token' });
     }
+
+    user = { id: data.user.id, email: data.user.email };
+  } catch (err: any) {
+    console.error('[requireAuth] Unexpected error validating token:', err);
+    return res.status(401).json({ error: 'invalid_token' });
   }
 
   req.user = user;

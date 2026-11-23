@@ -208,10 +208,11 @@ adminRouter.post('/users/:id/ban', async (req: Request, res: Response) => {
       .upsert({ id, is_banned: true }, { onConflict: 'id' });
 
     if (error) {
-      console.error('[admin/users/:id/ban] Error banning user:', error);
-      return res.status(500).json({ error: 'Failed to ban user' });
+      console.error('[admin/users/:id/ban] Error banning user in profiles:', error);
+      return res.status(500).json({ error: 'Failed to ban user in database' });
     }
 
+    console.log(`[admin/users/:id/ban] User ${id} banned successfully`);
     return res.json({ success: true, message: 'User banned successfully', is_banned: true });
   } catch (err: any) {
     console.error('[admin/users/:id/ban] Error:', err);
@@ -235,10 +236,11 @@ adminRouter.post('/users/:id/unban', async (req: Request, res: Response) => {
       .upsert({ id, is_banned: false }, { onConflict: 'id' });
 
     if (error) {
-      console.error('[admin/users/:id/unban] Error unbanning user:', error);
-      return res.status(500).json({ error: 'Failed to unban user' });
+      console.error('[admin/users/:id/unban] Error unbanning user in profiles:', error);
+      return res.status(500).json({ error: 'Failed to unban user in database' });
     }
 
+    console.log(`[admin/users/:id/unban] User ${id} unbanned successfully`);
     return res.json({ success: true, message: 'User unbanned successfully', is_banned: false });
   } catch (err: any) {
     console.error('[admin/users/:id/unban] Error:', err);
@@ -248,7 +250,7 @@ adminRouter.post('/users/:id/unban', async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/admin/users/:id
- * Delete user from Supabase Auth (and profiles table).
+ * Delete user from Supabase Auth and profiles table.
  */
 adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
   try {
@@ -257,16 +259,24 @@ adminRouter.delete('/users/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing userId' });
     }
 
-    // 1. Delete user from Supabase Auth
+    // 1. Delete user from profiles table
+    const { error: profileErr } = await supabaseAdmin
+      .from('profiles')
+      .delete()
+      .eq('id', id);
+
+    if (profileErr) {
+      console.warn('[admin/users/:id/delete] Note on profiles delete:', profileErr.message);
+    }
+
+    // 2. Delete user from Supabase Auth
     const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(id);
     if (authErr) {
       console.error('[admin/users/:id/delete] Error deleting auth user:', authErr);
       return res.status(500).json({ error: authErr.message || 'Failed to delete user from auth' });
     }
 
-    // 2. Delete user profile
-    await supabaseAdmin.from('profiles').delete().eq('id', id);
-
+    console.log(`[admin/users/:id/delete] User ${id} deleted from profiles and auth`);
     return res.json({ success: true, message: 'User deleted successfully' });
   } catch (err: any) {
     console.error('[admin/users/:id/delete] Error:', err);

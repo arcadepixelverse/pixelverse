@@ -69,92 +69,56 @@ function playRouterTone(type: 'switch' | 'success' | 'wrong' | 'gameover' | 'spa
   } catch {}
 }
 
-export type PacketColor = 'cyan' | 'green' | 'purple'
-export type SwitchDirection = 'left' | 'down' | 'right'
+export type PacketColor = 'cyan' | 'red'
+export type SwitchDir = 'left' | 'right'
+export type NodeId = 'j0' | 'j1' | 'j2' | 'j3' | 'j4' | 'j5'
+
+interface JunctionCoord {
+  x: number
+  y: number
+  label: string
+}
+
+// Coordinates of the 6 junction nodes in the 3-row branching tree
+const JUNCTIONS: Record<NodeId, JunctionCoord> = {
+  j0: { x: 50, y: 20, label: 'J-0' }, // Row 0 (Center)
+  j1: { x: 35, y: 44, label: 'J-1' }, // Row 1 (Left)
+  j2: { x: 65, y: 44, label: 'J-2' }, // Row 1 (Right)
+  j3: { x: 20, y: 68, label: 'J-3' }, // Row 2 (Left)
+  j4: { x: 50, y: 68, label: 'J-4' }, // Row 2 (Center)
+  j5: { x: 80, y: 68, label: 'J-5' }, // Row 2 (Right)
+}
+
+// Destination Bins at bottom
+const BINS: Record<PacketColor, { x: number; y: number; label: string; sub: string }> = {
+  cyan: { x: 30, y: 90, label: 'PORT ALPHA', sub: 'CYAN BIN' },
+  red: { x: 70, y: 90, label: 'PORT OMEGA', sub: 'RED BIN' },
+}
+
+// Top Spawner Emitter coordinate
+const SPAWNER = { x: 50, y: 4 }
 
 interface Packet {
   id: string
   color: PacketColor
-  currentLane: number // 0: Left, 1: Center, 2: Right
-  prevLane: number // For smooth diagonal animation origin
-  leg: number // 0: top -> Row 1; 1: Row 1 -> Row 2; 2: Row 2 -> Bin
-}
-
-const COLOR_DEFS: Record<
-  PacketColor,
-  {
-    name: string
-    label: string
-    hex: string
-    bg: string
-    border: string
-    text: string
-    glow: string
-    lightBg: string
-  }
-> = {
-  cyan: {
-    name: 'CYAN',
-    label: 'PORT ALPHA',
-    hex: '#00F5FF',
-    bg: 'bg-cyan-400',
-    border: 'border-cyan-400',
-    text: 'text-cyan-400',
-    glow: 'shadow-[0_0_20px_rgba(0,245,255,0.6)]',
-    lightBg: 'rgba(0, 245, 255, 0.12)',
-  },
-  green: {
-    name: 'GREEN',
-    label: 'PORT BETA',
-    hex: '#30D158',
-    bg: 'bg-green-400',
-    border: 'border-green-400',
-    text: 'text-green-400',
-    glow: 'shadow-[0_0_20px_rgba(48,209,88,0.6)]',
-    lightBg: 'rgba(48, 209, 88, 0.12)',
-  },
-  purple: {
-    name: 'PURPLE',
-    label: 'PORT GAMMA',
-    hex: '#BF5AF2',
-    bg: 'bg-purple-400',
-    border: 'border-purple-400',
-    text: 'text-purple-400',
-    glow: 'shadow-[0_0_20px_rgba(191,90,242,0.6)]',
-    lightBg: 'rgba(191, 90, 242, 0.12)',
-  },
-}
-
-// Bins assignment: Lane 0 = Cyan, Lane 1 = Green, Lane 2 = Purple
-const BIN_LANE_COLORS: PacketColor[] = ['cyan', 'green', 'purple']
-
-// Horizontal lane percentages
-const LANE_X: number[] = [20, 50, 80]
-
-// Allowed switch directions per lane
-const ALLOWED_DIRECTIONS: Record<number, SwitchDirection[]> = {
-  0: ['down', 'right'],
-  1: ['left', 'down', 'right'],
-  2: ['down', 'left'],
-}
-
-const DIRECTION_ICONS: Record<SwitchDirection, string> = {
-  down: '↓',
-  left: '↙',
-  right: '↘',
-}
-
-function getNextLane(lane: number, dir: SwitchDirection): number {
-  if (dir === 'left') return Math.max(0, lane - 1)
-  if (dir === 'right') return Math.min(2, lane + 1)
-  return lane
+  leg: number // 0: Spawner -> J0, 1: J0 -> Row 1, 2: Row 1 -> Row 2, 3: Row 2 -> Bin
+  currentNode?: NodeId
+  targetNode?: NodeId
+  targetBin?: PacketColor
+  startX: number
+  startY: number
+  targetX: number
+  targetY: number
 }
 
 // Timing parameters per difficulty
-const DIFFICULTY_SPEEDS: Record<Difficulty, { legDuration: number; spawnInterval: number }> = {
-  easy: { legDuration: 2.2, spawnInterval: 3200 },
-  medium: { legDuration: 1.4, spawnInterval: 2200 },
-  hard: { legDuration: 0.95, spawnInterval: 1500 },
+const DIFFICULTY_CONFIG: Record<
+  Difficulty,
+  { legDuration: number; spawnInterval: number }
+> = {
+  easy: { legDuration: 1.6, spawnInterval: 3200 },
+  medium: { legDuration: 1.15, spawnInterval: 2200 },
+  hard: { legDuration: 0.8, spawnInterval: 1400 },
 }
 
 export function PacketRouter() {
@@ -167,17 +131,22 @@ export function PacketRouter() {
   const [finalScore, setFinalScore] = useState<number>(0)
   const [packets, setPackets] = useState<Packet[]>([])
   const [feedback, setFeedback] = useState<{ text: string; isCorrect: boolean } | null>(null)
-  const [flashingBin, setFlashingBin] = useState<{ lane: number; success: boolean } | null>(null)
+  const [flashingBin, setFlashingBin] = useState<{ bin: PacketColor; success: boolean } | null>(null)
   const [leaderboardStatus, setLeaderboardStatus] = useState<string>('')
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false)
 
-  // Junction switch directions
-  const [switchesRow1, setSwitchesRow1] = useState<SwitchDirection[]>(['down', 'down', 'down'])
-  const [switchesRow2, setSwitchesRow2] = useState<SwitchDirection[]>(['down', 'down', 'down'])
+  // Junction switches: all default to 'left'
+  const [switches, setSwitches] = useState<Record<NodeId, SwitchDir>>({
+    j0: 'left',
+    j1: 'left',
+    j2: 'right',
+    j3: 'left',
+    j4: 'left',
+    j5: 'right',
+  })
 
-  // Mutable refs to prevent stale closure race conditions in animation callbacks
-  const switchesRow1Ref = useRef<SwitchDirection[]>(['down', 'down', 'down'])
-  const switchesRow2Ref = useRef<SwitchDirection[]>(['down', 'down', 'down'])
+  // Mutable refs to prevent stale closure bugs in animation callbacks
+  const switchesRef = useRef<Record<NodeId, SwitchDir>>(switches)
   const gameStateRef = useRef<'idle' | 'playing' | 'gameover'>('idle')
   const difficultyRef = useRef<Difficulty>(difficulty)
   const livesRef = useRef<number>(3)
@@ -187,6 +156,7 @@ export function PacketRouter() {
   const packetIdCounter = useRef<number>(0)
   const spawnTimerRef = useRef<any>(null)
 
+  switchesRef.current = switches
   difficultyRef.current = difficulty
   gameStateRef.current = gameState
   livesRef.current = lives
@@ -231,13 +201,12 @@ export function PacketRouter() {
     submitScore(calculated, difficultyRef.current)
   }, [])
 
-  // Spawn new packet
+  // Spawn new packet at top center
   const spawnPacket = useCallback(() => {
     if (gameStateRef.current !== 'playing') return
 
-    const colors: PacketColor[] = ['cyan', 'green', 'purple']
-    const color = colors[Math.floor(Math.random() * colors.length)]
-    const lane = Math.floor(Math.random() * 3)
+    // Pick Cyan or Red
+    const color: PacketColor = Math.random() < 0.5 ? 'cyan' : 'red'
     packetIdCounter.current += 1
     const id = `pkt_${Date.now()}_${packetIdCounter.current}`
 
@@ -248,37 +217,25 @@ export function PacketRouter() {
       {
         id,
         color,
-        currentLane: lane,
-        prevLane: lane,
         leg: 0,
+        startX: SPAWNER.x,
+        startY: SPAWNER.y,
+        targetX: JUNCTIONS.j0.x,
+        targetY: JUNCTIONS.j0.y,
+        targetNode: 'j0',
       },
     ])
   }, [])
 
-  // Cycle junction switch direction
-  const toggleSwitch = (row: 1 | 2, lane: number) => {
+  // Toggle Junction switch between 'left' and 'right'
+  const toggleSwitch = (nodeId: NodeId) => {
     playRouterTone('switch')
-    const allowed = ALLOWED_DIRECTIONS[lane]
-
-    if (row === 1) {
-      setSwitchesRow1((prev) => {
-        const current = prev[lane]
-        const nextIdx = (allowed.indexOf(current) + 1) % allowed.length
-        const updated = [...prev]
-        updated[lane] = allowed[nextIdx]
-        switchesRow1Ref.current = updated
-        return updated
-      })
-    } else {
-      setSwitchesRow2((prev) => {
-        const current = prev[lane]
-        const nextIdx = (allowed.indexOf(current) + 1) % allowed.length
-        const updated = [...prev]
-        updated[lane] = allowed[nextIdx]
-        switchesRow2Ref.current = updated
-        return updated
-      })
-    }
+    setSwitches((prev) => {
+      const nextDir: SwitchDir = prev[nodeId] === 'left' ? 'right' : 'left'
+      const updated = { ...prev, [nodeId]: nextDir }
+      switchesRef.current = updated
+      return updated
+    })
   }
 
   // Handle packet leg completion
@@ -289,37 +246,97 @@ export function PacketRouter() {
       const pkt = prev.find((p) => p.id === packetId)
       if (!pkt) return prev
 
+      const currentSwitches = switchesRef.current
+
       if (pkt.leg === 0) {
-        // Leg 0 complete: reached Row 1
-        const dir = switchesRow1Ref.current[pkt.currentLane]
-        const nextLane = getNextLane(pkt.currentLane, dir)
+        // Reached J0 (Row 0) -> decide next node in Row 1
+        const dir = currentSwitches.j0
+        const nextNode: NodeId = dir === 'left' ? 'j1' : 'j2'
+        const targetCoord = JUNCTIONS[nextNode]
+
         return prev.map((p) =>
           p.id === packetId
-            ? { ...p, leg: 1, prevLane: pkt.currentLane, currentLane: nextLane }
+            ? {
+                ...p,
+                leg: 1,
+                currentNode: 'j0',
+                targetNode: nextNode,
+                startX: JUNCTIONS.j0.x,
+                startY: JUNCTIONS.j0.y,
+                targetX: targetCoord.x,
+                targetY: targetCoord.y,
+              }
             : p
         )
       }
 
       if (pkt.leg === 1) {
-        // Leg 1 complete: reached Row 2
-        const dir = switchesRow2Ref.current[pkt.currentLane]
-        const finalLane = getNextLane(pkt.currentLane, dir)
+        // Reached Row 1 node (J1 or J2) -> decide next node in Row 2
+        const currentNode = pkt.targetNode || 'j1'
+        const dir = currentSwitches[currentNode]
+
+        let nextNode: NodeId
+        if (currentNode === 'j1') {
+          nextNode = dir === 'left' ? 'j3' : 'j4'
+        } else {
+          // j2
+          nextNode = dir === 'left' ? 'j4' : 'j5'
+        }
+
+        const startCoord = JUNCTIONS[currentNode]
+        const targetCoord = JUNCTIONS[nextNode]
+
         return prev.map((p) =>
           p.id === packetId
-            ? { ...p, leg: 2, prevLane: pkt.currentLane, currentLane: finalLane }
+            ? {
+                ...p,
+                leg: 2,
+                currentNode,
+                targetNode: nextNode,
+                startX: startCoord.x,
+                startY: startCoord.y,
+                targetX: targetCoord.x,
+                targetY: targetCoord.y,
+              }
             : p
         )
       }
 
-      // Leg 2 complete: reached destination bin!
-      const targetColor = BIN_LANE_COLORS[pkt.currentLane]
-      const isMatch = pkt.color === targetColor
+      if (pkt.leg === 2) {
+        // Reached Row 2 node (J3, J4, or J5) -> decide destination Bin
+        const currentNode = pkt.targetNode || 'j4'
+        const dir = currentSwitches[currentNode]
+        const targetBin: PacketColor = dir === 'left' ? 'cyan' : 'red'
 
-      setFlashingBin({ lane: pkt.currentLane, success: isMatch })
+        const startCoord = JUNCTIONS[currentNode]
+        const binCoord = BINS[targetBin]
+
+        return prev.map((p) =>
+          p.id === packetId
+            ? {
+                ...p,
+                leg: 3,
+                currentNode,
+                targetNode: undefined,
+                targetBin,
+                startX: startCoord.x,
+                startY: startCoord.y,
+                targetX: binCoord.x,
+                targetY: binCoord.y,
+              }
+            : p
+        )
+      }
+
+      // Leg 3 complete: Arrived in destination bin!
+      const destinationBin = pkt.targetBin || 'cyan'
+      const isMatch = pkt.color === destinationBin
+
+      setFlashingBin({ bin: destinationBin, success: isMatch })
       setTimeout(() => setFlashingBin(null), 400)
 
       if (isMatch) {
-        // SUCCESS
+        // SUCCESSFUL ROUTING
         playRouterTone('success')
         const currentStreak = streakRef.current + 1
         streakRef.current = currentStreak
@@ -334,7 +351,7 @@ export function PacketRouter() {
         setScore(scoreRef.current)
         setFeedback({ text: `+${earned} ROUTED!`, isCorrect: true })
       } else {
-        // MISROUTED
+        // MISROUTED BUFFER MISMATCH
         playRouterTone('wrong')
         streakRef.current = 0
         setStreak(0)
@@ -342,7 +359,7 @@ export function PacketRouter() {
         const newLives = livesRef.current - 1
         livesRef.current = newLives
         setLives(newLives)
-        setFeedback({ text: 'BUFFER MISMATCH! -1 LIFE', isCorrect: false })
+        setFeedback({ text: 'BUFFER MISMATCH! -1 CORE', isCorrect: false })
 
         if (newLives <= 0) {
           triggerGameOver()
@@ -374,11 +391,16 @@ export function PacketRouter() {
     setFeedback(null)
     setLeaderboardStatus('')
 
-    const initialSwitches: SwitchDirection[] = ['down', 'down', 'down']
-    setSwitchesRow1(initialSwitches)
-    setSwitchesRow2(initialSwitches)
-    switchesRow1Ref.current = [...initialSwitches]
-    switchesRow2Ref.current = [...initialSwitches]
+    const initialSwitches: Record<NodeId, SwitchDir> = {
+      j0: 'left',
+      j1: 'left',
+      j2: 'right',
+      j3: 'left',
+      j4: 'left',
+      j5: 'right',
+    }
+    setSwitches(initialSwitches)
+    switchesRef.current = { ...initialSwitches }
 
     if (spawnTimerRef.current) clearInterval(spawnTimerRef.current)
 
@@ -389,7 +411,7 @@ export function PacketRouter() {
       }
     }, 400)
 
-    const interval = DIFFICULTY_SPEEDS[difficulty].spawnInterval
+    const interval = DIFFICULTY_CONFIG[difficulty].spawnInterval
     spawnTimerRef.current = setInterval(spawnPacket, interval)
   }
 
@@ -400,7 +422,7 @@ export function PacketRouter() {
     }
   }, [])
 
-  const speedConfig = DIFFICULTY_SPEEDS[difficulty]
+  const speedConfig = DIFFICULTY_CONFIG[difficulty]
 
   return (
     <div
@@ -408,7 +430,7 @@ export function PacketRouter() {
       className="relative z-10 min-h-screen flex flex-col text-white font-sans px-4 py-4 md:px-8 md:py-6 select-none"
     >
       {/* ── Top Header ── */}
-      <header className="w-full max-w-4xl mx-auto flex items-center justify-between pb-3 mb-3 border-b border-white/10">
+      <header className="w-full max-w-xl mx-auto flex items-center justify-between pb-3 mb-3 border-b border-white/10">
         <div className="flex items-center gap-3">
           <Link
             to="/"
@@ -429,7 +451,7 @@ export function PacketRouter() {
               </span>
             </div>
             <p className="text-[11px] text-white/40 tracking-wide hidden sm:block">
-              Route packets through switches to matching colored destination ports.
+              Flip junction switches to route Cyan and Red packets into matching ports.
             </p>
           </div>
         </div>
@@ -498,13 +520,15 @@ export function PacketRouter() {
         </AnimatePresence>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            ACTIVE TRACK BOARD (Visible in all states as backdrop or active)
+            ACTIVE JUNCTION ROUTING GRID
         ═══════════════════════════════════════════════════════════════════ */}
         <div
-          className="relative w-full h-[520px] rounded-3xl border border-white/10 backdrop-blur-2xl overflow-hidden flex flex-col justify-between p-4"
+          className="relative w-full h-[540px] rounded-3xl border border-white/10 backdrop-blur-2xl overflow-hidden flex flex-col justify-between p-4"
           style={{
-            background: 'linear-gradient(180deg, rgba(10, 15, 25, 0.92) 0%, rgba(5, 8, 15, 0.98) 100%)',
-            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6), inset 0 0 60px rgba(0, 245, 255, 0.03)',
+            background:
+              'linear-gradient(180deg, rgba(10, 15, 25, 0.94) 0%, rgba(5, 8, 15, 0.98) 100%)',
+            boxShadow:
+              '0 20px 50px rgba(0, 0, 0, 0.6), inset 0 0 60px rgba(0, 245, 255, 0.03)',
           }}
         >
           {/* Subtle grid background pattern */}
@@ -517,271 +541,300 @@ export function PacketRouter() {
             }}
           />
 
-          {/* SVG Connection Traces */}
+          {/* SVG Connection Conduits */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
-            {/* 3 Main Vertical Conduit Lines */}
-            {LANE_X.map((x, i) => (
-              <line
-                key={`line-${i}`}
-                x1={`${x}%`}
-                y1="4%"
-                x2={`${x}%`}
-                y2="88%"
-                stroke="rgba(255, 255, 255, 0.08)"
-                strokeWidth="4"
-                strokeDasharray="4 6"
-              />
-            ))}
-
-            {/* Row 1 Crossover Traces (Y: 38% to 68%) */}
-            {/* Lane 0 -> Lane 1 */}
+            {/* 1. Spawner -> J0 */}
             <line
-              x1={`${LANE_X[0]}%`}
-              y1="38%"
-              x2={`${LANE_X[1]}%`}
-              y2="68%"
-              stroke={
-                switchesRow1[0] === 'right'
-                  ? 'rgba(0, 245, 255, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
-              }
-              strokeWidth={switchesRow1[0] === 'right' ? '3' : '2'}
-              strokeDasharray={switchesRow1[0] === 'right' ? undefined : '3 3'}
-            />
-            {/* Lane 1 -> Lane 0 */}
-            <line
-              x1={`${LANE_X[1]}%`}
-              y1="38%"
-              x2={`${LANE_X[0]}%`}
-              y2="68%"
-              stroke={
-                switchesRow1[1] === 'left'
-                  ? 'rgba(48, 209, 88, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
-              }
-              strokeWidth={switchesRow1[1] === 'left' ? '3' : '2'}
-              strokeDasharray={switchesRow1[1] === 'left' ? undefined : '3 3'}
-            />
-            {/* Lane 1 -> Lane 2 */}
-            <line
-              x1={`${LANE_X[1]}%`}
-              y1="38%"
-              x2={`${LANE_X[2]}%`}
-              y2="68%"
-              stroke={
-                switchesRow1[1] === 'right'
-                  ? 'rgba(48, 209, 88, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
-              }
-              strokeWidth={switchesRow1[1] === 'right' ? '3' : '2'}
-              strokeDasharray={switchesRow1[1] === 'right' ? undefined : '3 3'}
-            />
-            {/* Lane 2 -> Lane 1 */}
-            <line
-              x1={`${LANE_X[2]}%`}
-              y1="38%"
-              x2={`${LANE_X[1]}%`}
-              y2="68%"
-              stroke={
-                switchesRow1[2] === 'left'
-                  ? 'rgba(191, 90, 242, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
-              }
-              strokeWidth={switchesRow1[2] === 'left' ? '3' : '2'}
-              strokeDasharray={switchesRow1[2] === 'left' ? undefined : '3 3'}
+              x1={`${SPAWNER.x}%`}
+              y1={`${SPAWNER.y}%`}
+              x2={`${JUNCTIONS.j0.x}%`}
+              y2={`${JUNCTIONS.j0.y}%`}
+              stroke="rgba(0, 245, 255, 0.4)"
+              strokeWidth="3"
+              strokeDasharray="4 4"
             />
 
-            {/* Row 2 Crossover Traces (Y: 68% to 88%) */}
-            {/* Lane 0 -> Lane 1 */}
+            {/* 2. J0 -> J1 (Row 0 Left) */}
             <line
-              x1={`${LANE_X[0]}%`}
-              y1="68%"
-              x2={`${LANE_X[1]}%`}
-              y2="88%"
+              x1={`${JUNCTIONS.j0.x}%`}
+              y1={`${JUNCTIONS.j0.y}%`}
+              x2={`${JUNCTIONS.j1.x}%`}
+              y2={`${JUNCTIONS.j1.y}%`}
               stroke={
-                switchesRow2[0] === 'right'
-                  ? 'rgba(0, 245, 255, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
+                switches.j0 === 'left'
+                  ? 'rgba(0, 245, 255, 0.75)'
+                  : 'rgba(255, 255, 255, 0.08)'
               }
-              strokeWidth={switchesRow2[0] === 'right' ? '3' : '2'}
-              strokeDasharray={switchesRow2[0] === 'right' ? undefined : '3 3'}
+              strokeWidth={switches.j0 === 'left' ? '3' : '2'}
+              strokeDasharray={switches.j0 === 'left' ? undefined : '3 3'}
             />
-            {/* Lane 1 -> Lane 0 */}
+
+            {/* 3. J0 -> J2 (Row 0 Right) */}
             <line
-              x1={`${LANE_X[1]}%`}
-              y1="68%"
-              x2={`${LANE_X[0]}%`}
-              y2="88%"
+              x1={`${JUNCTIONS.j0.x}%`}
+              y1={`${JUNCTIONS.j0.y}%`}
+              x2={`${JUNCTIONS.j2.x}%`}
+              y2={`${JUNCTIONS.j2.y}%`}
               stroke={
-                switchesRow2[1] === 'left'
-                  ? 'rgba(48, 209, 88, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
+                switches.j0 === 'right'
+                  ? 'rgba(255, 55, 95, 0.75)'
+                  : 'rgba(255, 255, 255, 0.08)'
               }
-              strokeWidth={switchesRow2[1] === 'left' ? '3' : '2'}
-              strokeDasharray={switchesRow2[1] === 'left' ? undefined : '3 3'}
+              strokeWidth={switches.j0 === 'right' ? '3' : '2'}
+              strokeDasharray={switches.j0 === 'right' ? undefined : '3 3'}
             />
-            {/* Lane 1 -> Lane 2 */}
+
+            {/* 4. J1 -> J3 (Row 1 Left -> Row 2 Left) */}
             <line
-              x1={`${LANE_X[1]}%`}
-              y1="68%"
-              x2={`${LANE_X[2]}%`}
-              y2="88%"
+              x1={`${JUNCTIONS.j1.x}%`}
+              y1={`${JUNCTIONS.j1.y}%`}
+              x2={`${JUNCTIONS.j3.x}%`}
+              y2={`${JUNCTIONS.j3.y}%`}
               stroke={
-                switchesRow2[1] === 'right'
-                  ? 'rgba(48, 209, 88, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
+                switches.j1 === 'left'
+                  ? 'rgba(0, 245, 255, 0.75)'
+                  : 'rgba(255, 255, 255, 0.08)'
               }
-              strokeWidth={switchesRow2[1] === 'right' ? '3' : '2'}
-              strokeDasharray={switchesRow2[1] === 'right' ? undefined : '3 3'}
+              strokeWidth={switches.j1 === 'left' ? '3' : '2'}
+              strokeDasharray={switches.j1 === 'left' ? undefined : '3 3'}
             />
-            {/* Lane 2 -> Lane 1 */}
+
+            {/* 5. J1 -> J4 (Row 1 Left -> Row 2 Center) */}
             <line
-              x1={`${LANE_X[2]}%`}
-              y1="68%"
-              x2={`${LANE_X[1]}%`}
-              y2="88%"
+              x1={`${JUNCTIONS.j1.x}%`}
+              y1={`${JUNCTIONS.j1.y}%`}
+              x2={`${JUNCTIONS.j4.x}%`}
+              y2={`${JUNCTIONS.j4.y}%`}
               stroke={
-                switchesRow2[2] === 'left'
-                  ? 'rgba(191, 90, 242, 0.6)'
-                  : 'rgba(255, 255, 255, 0.06)'
+                switches.j1 === 'right'
+                  ? 'rgba(255, 55, 95, 0.75)'
+                  : 'rgba(255, 255, 255, 0.08)'
               }
-              strokeWidth={switchesRow2[2] === 'left' ? '3' : '2'}
-              strokeDasharray={switchesRow2[2] === 'left' ? undefined : '3 3'}
+              strokeWidth={switches.j1 === 'right' ? '3' : '2'}
+              strokeDasharray={switches.j1 === 'right' ? undefined : '3 3'}
+            />
+
+            {/* 6. J2 -> J4 (Row 1 Right -> Row 2 Center) */}
+            <line
+              x1={`${JUNCTIONS.j2.x}%`}
+              y1={`${JUNCTIONS.j2.y}%`}
+              x2={`${JUNCTIONS.j4.x}%`}
+              y2={`${JUNCTIONS.j4.y}%`}
+              stroke={
+                switches.j2 === 'left'
+                  ? 'rgba(0, 245, 255, 0.75)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j2 === 'left' ? '3' : '2'}
+              strokeDasharray={switches.j2 === 'left' ? undefined : '3 3'}
+            />
+
+            {/* 7. J2 -> J5 (Row 1 Right -> Row 2 Right) */}
+            <line
+              x1={`${JUNCTIONS.j2.x}%`}
+              y1={`${JUNCTIONS.j2.y}%`}
+              x2={`${JUNCTIONS.j5.x}%`}
+              y2={`${JUNCTIONS.j5.y}%`}
+              stroke={
+                switches.j2 === 'right'
+                  ? 'rgba(255, 55, 95, 0.75)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j2 === 'right' ? '3' : '2'}
+              strokeDasharray={switches.j2 === 'right' ? undefined : '3 3'}
+            />
+
+            {/* 8. J3 -> Cyan Bin (Row 2 Left -> Cyan) */}
+            <line
+              x1={`${JUNCTIONS.j3.x}%`}
+              y1={`${JUNCTIONS.j3.y}%`}
+              x2={`${BINS.cyan.x}%`}
+              y2={`${BINS.cyan.y}%`}
+              stroke={
+                switches.j3 === 'left'
+                  ? 'rgba(0, 245, 255, 0.85)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j3 === 'left' ? '3' : '2'}
+              strokeDasharray={switches.j3 === 'left' ? undefined : '3 3'}
+            />
+
+            {/* 9. J3 -> Red Bin (Row 2 Left -> Red cross-conduit) */}
+            <line
+              x1={`${JUNCTIONS.j3.x}%`}
+              y1={`${JUNCTIONS.j3.y}%`}
+              x2={`${BINS.red.x}%`}
+              y2={`${BINS.red.y}%`}
+              stroke={
+                switches.j3 === 'right'
+                  ? 'rgba(255, 55, 95, 0.85)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j3 === 'right' ? '3' : '2'}
+              strokeDasharray={switches.j3 === 'right' ? undefined : '3 3'}
+            />
+
+            {/* 10. J4 -> Cyan Bin (Row 2 Center -> Cyan) */}
+            <line
+              x1={`${JUNCTIONS.j4.x}%`}
+              y1={`${JUNCTIONS.j4.y}%`}
+              x2={`${BINS.cyan.x}%`}
+              y2={`${BINS.cyan.y}%`}
+              stroke={
+                switches.j4 === 'left'
+                  ? 'rgba(0, 245, 255, 0.85)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j4 === 'left' ? '3' : '2'}
+              strokeDasharray={switches.j4 === 'left' ? undefined : '3 3'}
+            />
+
+            {/* 11. J4 -> Red Bin (Row 2 Center -> Red) */}
+            <line
+              x1={`${JUNCTIONS.j4.x}%`}
+              y1={`${JUNCTIONS.j4.y}%`}
+              x2={`${BINS.red.x}%`}
+              y2={`${BINS.red.y}%`}
+              stroke={
+                switches.j4 === 'right'
+                  ? 'rgba(255, 55, 95, 0.85)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j4 === 'right' ? '3' : '2'}
+              strokeDasharray={switches.j4 === 'right' ? undefined : '3 3'}
+            />
+
+            {/* 12. J5 -> Cyan Bin (Row 2 Right -> Cyan cross-conduit) */}
+            <line
+              x1={`${JUNCTIONS.j5.x}%`}
+              y1={`${JUNCTIONS.j5.y}%`}
+              x2={`${BINS.cyan.x}%`}
+              y2={`${BINS.cyan.y}%`}
+              stroke={
+                switches.j5 === 'left'
+                  ? 'rgba(0, 245, 255, 0.85)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j5 === 'left' ? '3' : '2'}
+              strokeDasharray={switches.j5 === 'left' ? undefined : '3 3'}
+            />
+
+            {/* 13. J5 -> Red Bin (Row 2 Right -> Red) */}
+            <line
+              x1={`${JUNCTIONS.j5.x}%`}
+              y1={`${JUNCTIONS.j5.y}%`}
+              x2={`${BINS.red.x}%`}
+              y2={`${BINS.red.y}%`}
+              stroke={
+                switches.j5 === 'right'
+                  ? 'rgba(255, 55, 95, 0.85)'
+                  : 'rgba(255, 255, 255, 0.08)'
+              }
+              strokeWidth={switches.j5 === 'right' ? '3' : '2'}
+              strokeDasharray={switches.j5 === 'right' ? undefined : '3 3'}
             />
           </svg>
 
-          {/* ── Top Spawner Emitters ── */}
-          <div className="relative z-10 w-full flex items-center justify-around pt-2">
-            {[0, 1, 2].map((lane) => (
+          {/* ── Top Center Packet Spawner Emitter ── */}
+          <div
+            className="absolute z-10 -translate-x-1/2 flex flex-col items-center"
+            style={{ left: `${SPAWNER.x}%`, top: `${SPAWNER.y}%` }}
+          >
+            <div className="w-14 h-4 rounded-full bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center shadow-[0_0_15px_rgba(0,245,255,0.3)]">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+            </div>
+            <span className="text-[8px] font-mono uppercase text-cyan-300/60 mt-0.5">
+              EMITTER
+            </span>
+          </div>
+
+          {/* ── 6 Interactive Junction Switch Nodes ── */}
+          {(Object.keys(JUNCTIONS) as NodeId[]).map((nodeId) => {
+            const coord = JUNCTIONS[nodeId]
+            const dir = switches[nodeId]
+            const isLeft = dir === 'left'
+
+            return (
               <div
-                key={`spawner-${lane}`}
-                className="w-10 h-3 rounded-full bg-white/10 border border-white/20 flex items-center justify-center shadow-inner"
+                key={nodeId}
+                className="absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
+                style={{ left: `${coord.x}%`, top: `${coord.y}%` }}
               >
-                <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.88 }}
+                  onClick={() => toggleSwitch(nodeId)}
+                  disabled={gameState !== 'playing'}
+                  style={{
+                    touchAction: 'manipulation',
+                    background: isLeft
+                      ? 'rgba(0, 245, 255, 0.14)'
+                      : 'rgba(255, 55, 95, 0.14)',
+                    borderColor: isLeft
+                      ? 'rgba(0, 245, 255, 0.8)'
+                      : 'rgba(255, 55, 95, 0.8)',
+                    boxShadow: isLeft
+                      ? '0 0 18px rgba(0, 245, 255, 0.45)'
+                      : '0 0 18px rgba(255, 55, 95, 0.45)',
+                  }}
+                  className="w-12 h-12 rounded-2xl border flex flex-col items-center justify-center cursor-pointer backdrop-blur-xl transition-all shadow-md group"
+                >
+                  <span
+                    className={`text-xl leading-none font-black transition-transform duration-200 ${
+                      isLeft ? 'text-cyan-300' : 'text-red-300'
+                    }`}
+                  >
+                    {isLeft ? '↙' : '↘'}
+                  </span>
+                  <span
+                    className={`text-[8px] font-mono font-bold uppercase tracking-tighter ${
+                      isLeft ? 'text-cyan-400' : 'text-red-400'
+                    }`}
+                  >
+                    {isLeft ? 'LEFT' : 'RIGHT'}
+                  </span>
+                </motion.button>
+                <span className="text-[8px] font-mono text-white/30 tracking-tight mt-1">
+                  {coord.label}
+                </span>
               </div>
-            ))}
-          </div>
+            )
+          })}
 
-          {/* ── Junction Switch Row 1 (top: 38%) ── */}
-          <div
-            className="absolute left-0 right-0 z-20 flex justify-around items-center"
-            style={{ top: '38%', transform: 'translateY(-50%)' }}
-          >
-            {[0, 1, 2].map((lane) => {
-              const dir = switchesRow1[lane]
-              return (
-                <motion.button
-                  key={`sw-1-${lane}`}
-                  whileTap={{ scale: 0.88 }}
-                  onClick={() => toggleSwitch(1, lane)}
-                  disabled={gameState !== 'playing'}
-                  className="w-12 h-12 rounded-2xl border flex flex-col items-center justify-center text-sm font-black transition-all cursor-pointer backdrop-blur-xl shadow-lg"
-                  style={{
-                    touchAction: 'manipulation',
-                    background:
-                      dir === 'down'
-                        ? 'rgba(255, 255, 255, 0.05)'
-                        : 'rgba(0, 245, 255, 0.15)',
-                    borderColor:
-                      dir === 'down'
-                        ? 'rgba(255, 255, 255, 0.2)'
-                        : 'rgba(0, 245, 255, 0.8)',
-                    boxShadow:
-                      dir !== 'down'
-                        ? '0 0 20px rgba(0, 245, 255, 0.4)'
-                        : undefined,
-                  }}
-                >
-                  <span className="text-lg leading-none font-bold text-cyan-300">
-                    {DIRECTION_ICONS[dir]}
-                  </span>
-                  <span className="text-[8px] font-mono uppercase text-white/40 tracking-tighter">
-                    {dir}
-                  </span>
-                </motion.button>
-              )
-            })}
-          </div>
-
-          {/* ── Junction Switch Row 2 (top: 68%) ── */}
-          <div
-            className="absolute left-0 right-0 z-20 flex justify-around items-center"
-            style={{ top: '68%', transform: 'translateY(-50%)' }}
-          >
-            {[0, 1, 2].map((lane) => {
-              const dir = switchesRow2[lane]
-              return (
-                <motion.button
-                  key={`sw-2-${lane}`}
-                  whileTap={{ scale: 0.88 }}
-                  onClick={() => toggleSwitch(2, lane)}
-                  disabled={gameState !== 'playing'}
-                  className="w-12 h-12 rounded-2xl border flex flex-col items-center justify-center text-sm font-black transition-all cursor-pointer backdrop-blur-xl shadow-lg"
-                  style={{
-                    touchAction: 'manipulation',
-                    background:
-                      dir === 'down'
-                        ? 'rgba(255, 255, 255, 0.05)'
-                        : 'rgba(48, 209, 88, 0.15)',
-                    borderColor:
-                      dir === 'down'
-                        ? 'rgba(255, 255, 255, 0.2)'
-                        : 'rgba(48, 209, 88, 0.8)',
-                    boxShadow:
-                      dir !== 'down'
-                        ? '0 0 20px rgba(48, 209, 88, 0.4)'
-                        : undefined,
-                  }}
-                >
-                  <span className="text-lg leading-none font-bold text-green-300">
-                    {DIRECTION_ICONS[dir]}
-                  </span>
-                  <span className="text-[8px] font-mono uppercase text-white/40 tracking-tighter">
-                    {dir}
-                  </span>
-                </motion.button>
-              )
-            })}
-          </div>
-
-          {/* ── Falling Packets (Rendered via Framer Motion) ── */}
+          {/* ── Active Packets in Flight ── */}
           <AnimatePresence>
             {packets.map((pkt) => {
-              const c = COLOR_DEFS[pkt.color]
-
-              // Define waypoints per leg
-              let startTop = '4%'
-              let targetTop = '38%'
-              let startLeft = `${LANE_X[pkt.prevLane]}%`
-              let targetLeft = `${LANE_X[pkt.currentLane]}%`
-
-              if (pkt.leg === 1) {
-                startTop = '38%'
-                targetTop = '68%'
-              } else if (pkt.leg === 2) {
-                startTop = '68%'
-                targetTop = '88%'
-              }
+              const isCyan = pkt.color === 'cyan'
+              const colorHex = isCyan ? '#00F5FF' : '#FF375F'
+              const bgClass = isCyan ? 'bg-cyan-400' : 'bg-red-400'
+              const glowClass = isCyan
+                ? 'shadow-[0_0_20px_rgba(0,245,255,0.9)]'
+                : 'shadow-[0_0_20px_rgba(255,55,95,0.9)]'
 
               return (
                 <motion.div
                   key={pkt.id}
-                  initial={{ top: startTop, left: startLeft, scale: 0.8 }}
+                  initial={{
+                    left: `${pkt.startX}%`,
+                    top: `${pkt.startY}%`,
+                    scale: 0.8,
+                  }}
                   animate={{
-                    top: targetTop,
-                    left: targetLeft,
-                    scale: [0.9, 1.1, 0.95],
+                    left: `${pkt.targetX}%`,
+                    top: `${pkt.targetY}%`,
+                    scale: [0.95, 1.15, 1],
                   }}
                   transition={{
-                    top: { duration: speedConfig.legDuration, ease: 'linear' },
                     left: { duration: speedConfig.legDuration, ease: 'linear' },
-                    scale: { duration: 0.4, repeat: Infinity },
+                    top: { duration: speedConfig.legDuration, ease: 'linear' },
+                    scale: { duration: 0.35, repeat: Infinity },
                   }}
                   onAnimationComplete={() => handleLegComplete(pkt.id)}
                   style={{
                     transform: 'translate(-50%, -50%)',
+                    borderColor: colorHex,
                   }}
-                  className={`absolute z-30 w-7 h-7 rounded-full flex items-center justify-center font-black text-[9px] text-black ${c.bg} ${c.glow}`}
+                  className={`absolute z-30 w-7 h-7 rounded-full border-2 flex items-center justify-center ${bgClass} ${glowClass}`}
                 >
                   <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
                 </motion.div>
@@ -789,52 +842,85 @@ export function PacketRouter() {
             })}
           </AnimatePresence>
 
-          {/* ── Destination Bins (Bottom) ── */}
-          <div className="relative z-10 w-full flex items-center justify-around pb-2">
-            {[0, 1, 2].map((lane) => {
-              const colorKey = BIN_LANE_COLORS[lane]
-              const c = COLOR_DEFS[colorKey]
-              const isFlashing = flashingBin?.lane === lane
+          {/* ── Destination Bins at Bottom ── */}
+          <div className="relative z-10 w-full flex items-center justify-around pb-2 mt-auto">
+            {/* CYAN BIN (Port Alpha) */}
+            <motion.div
+              animate={
+                flashingBin?.bin === 'cyan'
+                  ? {
+                      scale: [1, 1.14, 1],
+                      borderColor: flashingBin.success ? '#00F5FF' : '#FF375F',
+                    }
+                  : {}
+              }
+              transition={{ duration: 0.3 }}
+              style={{
+                background:
+                  flashingBin?.bin === 'cyan'
+                    ? flashingBin.success
+                      ? 'rgba(0, 245, 255, 0.35)'
+                      : 'rgba(255, 55, 95, 0.35)'
+                    : 'rgba(0, 245, 255, 0.08)',
+                boxShadow:
+                  flashingBin?.bin === 'cyan'
+                    ? flashingBin.success
+                      ? '0 0 30px rgba(0, 245, 255, 0.8)'
+                      : '0 0 30px rgba(255, 55, 95, 0.8)'
+                    : '0 0 20px rgba(0, 245, 255, 0.2)',
+                borderColor: '#00F5FF',
+              }}
+              className="w-36 py-2.5 px-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all"
+            >
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
+                <span className="text-[11px] font-mono font-bold tracking-wider text-cyan-300">
+                  {BINS.cyan.label}
+                </span>
+              </div>
+              <span className="text-[9px] font-mono font-extrabold text-cyan-400/80 tracking-widest uppercase">
+                {BINS.cyan.sub}
+              </span>
+            </motion.div>
 
-              return (
-                <motion.div
-                  key={`bin-${lane}`}
-                  animate={
-                    isFlashing
-                      ? {
-                          scale: [1, 1.15, 1],
-                          borderColor: flashingBin.success ? '#30D158' : '#FF375F',
-                        }
-                      : {}
-                  }
-                  transition={{ duration: 0.3 }}
-                  className={`w-28 py-2.5 px-1 rounded-2xl border text-center flex flex-col items-center justify-center transition-all ${c.border}`}
-                  style={{
-                    background: isFlashing
-                      ? flashingBin?.success
-                        ? 'rgba(48, 209, 88, 0.3)'
-                        : 'rgba(255, 55, 95, 0.3)'
-                      : c.lightBg,
-                    boxShadow: isFlashing
-                      ? flashingBin?.success
-                        ? '0 0 30px rgba(48,209,88,0.7)'
-                        : '0 0 30px rgba(255,55,95,0.7)'
-                      : `0 0 15px ${c.hex}33`,
-                  }}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full mb-1"
-                    style={{ background: c.hex, boxShadow: `0 0 10px ${c.hex}` }}
-                  />
-                  <span className={`text-[10px] font-mono font-bold tracking-wider ${c.text}`}>
-                    {c.label}
-                  </span>
-                  <span className="text-[9px] font-mono text-white/50 tracking-tighter">
-                    {c.name}
-                  </span>
-                </motion.div>
-              )
-            })}
+            {/* RED BIN (Port Omega) */}
+            <motion.div
+              animate={
+                flashingBin?.bin === 'red'
+                  ? {
+                      scale: [1, 1.14, 1],
+                      borderColor: flashingBin.success ? '#FF375F' : '#00F5FF',
+                    }
+                  : {}
+              }
+              transition={{ duration: 0.3 }}
+              style={{
+                background:
+                  flashingBin?.bin === 'red'
+                    ? flashingBin.success
+                      ? 'rgba(255, 55, 95, 0.35)'
+                      : 'rgba(0, 245, 255, 0.35)'
+                    : 'rgba(255, 55, 95, 0.08)',
+                boxShadow:
+                  flashingBin?.bin === 'red'
+                    ? flashingBin.success
+                      ? '0 0 30px rgba(255, 55, 95, 0.8)'
+                      : '0 0 30px rgba(0, 245, 255, 0.8)'
+                    : '0 0 20px rgba(255, 55, 95, 0.2)',
+                borderColor: '#FF375F',
+              }}
+              className="w-36 py-2.5 px-2 rounded-2xl border text-center flex flex-col items-center justify-center transition-all"
+            >
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400 shadow-[0_0_8px_#FF375F]" />
+                <span className="text-[11px] font-mono font-bold tracking-wider text-red-300">
+                  {BINS.red.label}
+                </span>
+              </div>
+              <span className="text-[9px] font-mono font-extrabold text-red-400/80 tracking-widest uppercase">
+                {BINS.red.sub}
+              </span>
+            </motion.div>
           </div>
 
           {/* ═════════════════════════════════════════════════════════════════
@@ -856,7 +942,7 @@ export function PacketRouter() {
               </h2>
 
               <p className="text-xs text-white/60 max-w-sm mb-6 leading-relaxed">
-                Packets drop from top emitters. Tap junction switches to steer them into matching color ports at the bottom.
+                Packets spawn at top center. Click junction switches (Left or Right) to steer Cyan packets to the Cyan port and Red packets to the Red port!
               </p>
 
               {/* Difficulty Selector */}
@@ -903,7 +989,9 @@ export function PacketRouter() {
                 </div>
                 <div className="flex items-center justify-between text-xs text-cyan-400 font-mono">
                   <span>DIFFICULTY MULTIPLIER:</span>
-                  <span className="font-bold">{DIFFICULTY_MULTIPLIERS[difficulty]}x ({difficulty.toUpperCase()})</span>
+                  <span className="font-bold">
+                    {DIFFICULTY_MULTIPLIERS[difficulty]}x ({difficulty.toUpperCase()})
+                  </span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-purple-400 font-mono">
                   <span>MAX STREAK:</span>

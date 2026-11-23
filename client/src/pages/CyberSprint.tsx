@@ -59,6 +59,54 @@ interface Explosion {
   points: number
 }
 
+// ── Word Complexity Generator ──────────────────────────────────────────────
+export function generateComplexWord(baseWord: string, difficulty: Difficulty): string {
+  if (difficulty === 'easy') {
+    return baseWord.toLowerCase()
+  }
+
+  if (difficulty === 'medium') {
+    // Mixed casing + punctuation symbol (e.g., "ApPlE!", "cYbEr#")
+    const symbols = ['!', '?', '#', '$', '@']
+    const sym = symbols[Math.floor(Math.random() * symbols.length)]
+    const mixed = baseWord
+      .split('')
+      .map((c, i) => (i % 2 === 0 ? c.toUpperCase() : c.toLowerCase()))
+      .join('')
+    return `${mixed}${sym}`
+  }
+
+  // Hard: leetspeak, underscores & symbols (e.g., "A_pP!3", "C_yB3r$")
+  const leetMap: Record<string, string> = {
+    a: '4',
+    e: '3',
+    i: '!',
+    o: '0',
+    s: '$',
+    t: '7',
+  }
+  const symbols = ['!', '#', '$', '%', '&']
+  const sym = symbols[Math.floor(Math.random() * symbols.length)]
+
+  const mid = Math.max(1, Math.floor(baseWord.length / 2))
+  const part1 = baseWord.slice(0, mid)
+  const part2 = baseWord.slice(mid)
+
+  const transform = (str: string) =>
+    str
+      .split('')
+      .map((char) => {
+        const lower = char.toLowerCase()
+        if (leetMap[lower] && Math.random() > 0.3) {
+          return leetMap[lower]
+        }
+        return Math.random() > 0.5 ? char.toUpperCase() : char.toLowerCase()
+      })
+      .join('')
+
+  return `${transform(part1)}_${transform(part2)}${sym}`
+}
+
 // Retro Web Audio Synthesizer (0ms latency, zero assets)
 function playSound(type: 'hit' | 'miss' | 'gameover' | 'start') {
   try {
@@ -137,10 +185,13 @@ export function CyberSprint() {
   baseScoreRef.current = baseScore
   const livesRef = useRef<number>(lives)
   livesRef.current = lives
-  const wordsRef = useRef<FallingWord[]>(words)
-  wordsRef.current = words
+  const wordsRef = useRef<FallingWord[]>([])
   const streakRef = useRef<number>(streak)
   streakRef.current = streak
+  const maxStreakRef = useRef<number>(maxStreak)
+  maxStreakRef.current = maxStreak
+  const gameStateRef = useRef<'idle' | 'playing' | 'gameover'>('idle')
+  gameStateRef.current = gameState
 
   // Submit high score to backend leaderboard
   const submitScore = async (scoreToSubmit: number, currentDiff: Difficulty) => {
@@ -170,6 +221,7 @@ export function CyberSprint() {
 
     setFinalScore(calculatedFinal)
     setGameState('gameover')
+    gameStateRef.current = 'gameover'
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
@@ -183,21 +235,30 @@ export function CyberSprint() {
   const startGame = () => {
     playSound('start')
     setBaseScore(0)
+    baseScoreRef.current = 0
     setFinalScore(0)
     setLives(3)
+    livesRef.current = 3
+    wordsRef.current = []
     setWords([])
     setInput('')
     setStreak(0)
+    streakRef.current = 0
     setMaxStreak(0)
+    maxStreakRef.current = 0
     setWordsDestroyed(0)
     setExplosions([])
     setIsGlitching(false)
     setLeaderboardStatus('')
     setGameState('playing')
+    gameStateRef.current = 'playing'
 
     const now = performance.now()
     lastTimeRef.current = now
     lastSpawnTimeRef.current = now
+
+    // Initial spawn
+    spawnWord()
 
     setTimeout(() => {
       inputRef.current?.focus()
@@ -206,18 +267,18 @@ export function CyberSprint() {
 
   // Spawn a word matching current difficulty
   const spawnWord = () => {
-    const activeTexts = new Set(wordsRef.current.map((w) => w.text))
     const wordPool = CYBER_DICTIONARY[difficultyRef.current]
-    const available = wordPool.filter((w) => !activeTexts.has(w))
-    const text = available.length > 0
-      ? available[Math.floor(Math.random() * available.length)]
-      : wordPool[Math.floor(Math.random() * wordPool.length)]
+    const baseWord = wordPool[Math.floor(Math.random() * wordPool.length)]
+    const text = generateComplexWord(baseWord, difficultyRef.current)
+
+    // Check if text already on screen
+    if (wordsRef.current.some((w) => w.text === text)) return
 
     // Speed scaled by difficulty and score
     const diffSpeedMultiplier =
-      difficultyRef.current === 'easy' ? 0.85 : difficultyRef.current === 'hard' ? 1.6 : 1.15
-    const scoreScaling = 1 + Math.min(baseScoreRef.current / 400, 2.8)
-    const baseSpeed = (10 + Math.random() * 5) * diffSpeedMultiplier * scoreScaling
+      difficultyRef.current === 'easy' ? 0.9 : difficultyRef.current === 'hard' ? 1.5 : 1.15
+    const scoreScaling = 1 + Math.min(baseScoreRef.current / 400, 2.5)
+    const baseSpeed = (12 + Math.random() * 6) * diffSpeedMultiplier * scoreScaling
 
     const colors = ['#00F5FF', '#30D158', '#BF5AF2', '#FF9F0A']
     const color = colors[Math.floor(Math.random() * colors.length)]
@@ -225,13 +286,14 @@ export function CyberSprint() {
     const newWord: FallingWord = {
       id: `${Date.now()}-${Math.random()}`,
       text,
-      x: 8 + Math.random() * 70, // Keep comfortably away from borders
-      y: 0,
+      x: 10 + Math.random() * 70, // Keep comfortably away from borders
+      y: 2, // Starts visibly at top
       speed: baseSpeed,
       color,
     }
 
-    setWords((prev) => [...prev, newWord])
+    wordsRef.current.push(newWord)
+    setWords([...wordsRef.current])
   }
 
   // Robust 60fps Game Loop
@@ -239,46 +301,53 @@ export function CyberSprint() {
     if (gameState !== 'playing') {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
       }
       return
     }
 
     const loop = (currentTime: number) => {
+      if (gameStateRef.current !== 'playing') return
+
       // Delta time in seconds, clamped to 0.1 to avoid frame drop teleporting
       const dt = Math.min((currentTime - lastTimeRef.current) / 1000, 0.1)
       lastTimeRef.current = currentTime
 
       // Dynamic spawn interval based on difficulty and score
       const baseInterval =
-        difficultyRef.current === 'easy' ? 2400 : difficultyRef.current === 'hard' ? 1400 : 1850
-      const spawnInterval = Math.max(650, baseInterval - Math.floor(baseScoreRef.current / 120) * 110)
+        difficultyRef.current === 'easy' ? 2200 : difficultyRef.current === 'hard' ? 1300 : 1750
+      const spawnInterval = Math.max(600, baseInterval - Math.floor(baseScoreRef.current / 120) * 100)
 
       if (currentTime - lastSpawnTimeRef.current > spawnInterval) {
         spawnWord()
         lastSpawnTimeRef.current = currentTime
       }
 
-      // Update positions
-      const updated: FallingWord[] = []
-      let breached = false
+      // Update positions directly on wordsRef.current
+      const nextWords: FallingWord[] = []
+      let breachedCount = 0
 
       for (const w of wordsRef.current) {
         const nextY = w.y + w.speed * dt
         if (nextY >= 88) {
-          breached = true
+          breachedCount++
         } else {
-          updated.push({ ...w, y: nextY })
+          nextWords.push({ ...w, y: nextY })
         }
       }
 
-      if (breached) {
+      wordsRef.current = nextWords
+
+      if (breachedCount > 0) {
         playSound('miss')
         setIsGlitching(true)
         setTimeout(() => setIsGlitching(false), 280)
 
-        const remaining = livesRef.current - 1
+        const remaining = Math.max(0, livesRef.current - breachedCount)
+        livesRef.current = remaining
         setLives(remaining)
         setStreak(0)
+        streakRef.current = 0
 
         if (remaining <= 0) {
           triggerGameOver(baseScoreRef.current, difficultyRef.current)
@@ -286,7 +355,7 @@ export function CyberSprint() {
         }
       }
 
-      setWords(updated)
+      setWords([...wordsRef.current])
       animationFrameRef.current = requestAnimationFrame(loop)
     }
 
@@ -295,6 +364,7 @@ export function CyberSprint() {
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
       }
     }
   }, [gameState, triggerGameOver])
@@ -304,24 +374,32 @@ export function CyberSprint() {
     const rawVal = e.target.value
     setInput(rawVal)
 
-    const typedClean = rawVal.trim().toLowerCase()
-    if (!typedClean) return
+    const trimmedInput = rawVal.trim()
+    if (!trimmedInput) return
 
     // Find if typed string matches any active falling word
-    const matchedIndex = words.findIndex((w) => w.text.toLowerCase() === typedClean)
+    const matchedIndex = wordsRef.current.findIndex((w) => {
+      if (difficultyRef.current === 'easy') {
+        return w.text.toLowerCase() === trimmedInput.toLowerCase()
+      }
+      return w.text === trimmedInput
+    })
 
     if (matchedIndex !== -1) {
-      const matchedWord = words[matchedIndex]
+      const matchedWord = wordsRef.current[matchedIndex]
       playSound('hit')
 
       // Calculate score with streak bonus
       const wordPoints = matchedWord.text.length * 10 + streakRef.current * 5
-      const newScore = baseScore + wordPoints
-      const newStreak = streak + 1
-
+      const newScore = baseScoreRef.current + wordPoints
+      baseScoreRef.current = newScore
       setBaseScore(newScore)
+
+      const newStreak = streakRef.current + 1
+      streakRef.current = newStreak
       setStreak(newStreak)
-      if (newStreak > maxStreak) {
+      if (newStreak > maxStreakRef.current) {
+        maxStreakRef.current = newStreak
         setMaxStreak(newStreak)
       }
       setWordsDestroyed((prev) => prev + 1)
@@ -344,8 +422,9 @@ export function CyberSprint() {
         setExplosions((prev) => prev.filter((exp) => exp.id !== explosionId))
       }, 550)
 
-      // Remove destroyed word and reset input
-      setWords((prev) => prev.filter((_, idx) => idx !== matchedIndex))
+      // Remove destroyed word from wordsRef.current and update state
+      wordsRef.current.splice(matchedIndex, 1)
+      setWords([...wordsRef.current])
       setInput('')
     }
   }
@@ -492,9 +571,12 @@ export function CyberSprint() {
             {/* Falling Words Container */}
             <div className="absolute inset-0 overflow-hidden">
               {words.map((word) => {
-                const cleanInput = input.trim().toLowerCase()
+                const cleanInput = input.trim()
                 const isTargeted =
-                  cleanInput.length > 0 && word.text.toLowerCase().startsWith(cleanInput)
+                  cleanInput.length > 0 &&
+                  (difficulty === 'easy'
+                    ? word.text.toLowerCase().startsWith(cleanInput.toLowerCase())
+                    : word.text.startsWith(cleanInput))
                 const matchedPrefix = isTargeted ? word.text.slice(0, cleanInput.length) : ''
                 const remainingText = isTargeted ? word.text.slice(cleanInput.length) : word.text
 

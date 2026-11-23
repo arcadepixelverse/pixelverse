@@ -14,12 +14,17 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     });
   }
 
-  const configuredAdmin = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const rawAdminEnv = process.env.ADMIN_EMAIL || '';
+  const adminEmailsFromEnv = rawAdminEnv
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
   const userEmail = user.email.trim().toLowerCase();
 
   const isAuthorized =
-    (configuredAdmin && userEmail === configuredAdmin) ||
-    DEFAULT_ADMIN_EMAILS.includes(userEmail);
+    adminEmailsFromEnv.includes(userEmail) ||
+    DEFAULT_ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(userEmail);
 
   if (!isAuthorized) {
     return res.status(403).json({
