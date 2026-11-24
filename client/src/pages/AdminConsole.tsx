@@ -86,6 +86,41 @@ export interface ApiReportData {
     dailyAiCallsLimit: number
     playSessionTtlMinutes: number
   }
+  aiFailover?: {
+    providers: Array<{
+      name: string
+      tier: string
+      env: string
+      key: { status: 'CONFIGURED' | 'MISSING'; masked: string }
+      status: 'CONFIGURED' | 'MISSING'
+      calls: number
+      errors: number
+      rateLimit429s: number
+    }>
+    thresholds: {
+      dailyAiCallsPerUser: number
+      dailyPlaysPerUser: number
+      rateLimits: string
+    }
+  }
+  gamesContent?: {
+    gameStatus: GameStatusMap
+    hl_questions: { total: number; unused: number }
+    turing_scenarios: { total: number }
+    survival_scenarios: { total: number }
+    leaderboards: Record<string, number>
+  }
+  traffic?: {
+    totalRequests: number
+    endpointCounts: Record<string, number>
+    aiCallCount: number
+    rateLimit429Count: number
+    error4xxCount: number
+    error5xxCount: number
+    averageLatencyMs: number
+    cacheControl: string
+    cacheControlVerified: boolean
+  }
 }
 
 export interface LivePingResult {
@@ -1224,6 +1259,157 @@ export function AdminConsole() {
                     <div className="text-white/40 text-center py-4">Click "RUN ALL DIAGNOSTICS" to inspect keys</div>
                   )}
                 </div>
+
+                {/* 3-Tier AI Failover Telemetry */}
+                {apiReport?.aiFailover && (
+                  <div className="mt-4 pt-3 border-t border-white/10">
+                    <div className="text-[10px] font-black tracking-widest uppercase text-amber-300/80 mb-2">
+                      3-TIER AI FAILOVER TELEMETRY
+                    </div>
+                    <div className="space-y-1.5">
+                      {apiReport.aiFailover.providers.map((p) => (
+                        <div key={p.name} className="flex items-center justify-between gap-2 text-[11px] py-1 border-b border-white/5">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-bold text-white/80">{p.name}</span>
+                            <span className="text-[9px] text-white/30 font-mono">{p.tier}</span>
+                            <span className="font-mono text-white/50 truncate">{p.key.masked}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[9px] text-white/40 font-mono">
+                              {p.calls} calls • {p.errors} err • {p.rateLimit429s}×429
+                            </span>
+                            <span
+                              className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                                p.status === 'CONFIGURED'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                  : 'bg-red-500/10 text-red-400 border-red-500/30'
+                              }`}
+                            >
+                              {p.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-[10px] text-white/40 leading-relaxed">
+                      QUOTA: {apiReport.aiFailover.thresholds.dailyAiCallsPerUser} AI calls/user/day •{' '}
+                      {apiReport.aiFailover.thresholds.dailyPlaysPerUser} plays/user/day
+                      <br />
+                      <span className="text-white/30">{apiReport.aiFailover.thresholds.rateLimits}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Endpoint Traffic Breakdown */}
+                {apiReport?.traffic && (
+                  <div className="mt-4 pt-3 border-t border-white/10">
+                    <div className="text-[10px] font-black tracking-widest uppercase text-amber-300/80 mb-2">
+                      ENDPOINT TRAFFIC BREAKDOWN
+                    </div>
+                    <div className="space-y-1 text-[11px]">
+                      <div className="flex justify-between py-1 border-b border-white/5">
+                        <span className="text-white/40">TOTAL REQUESTS (SINCE BOOT)</span>
+                        <span className="text-white/90 font-bold font-mono">{apiReport.traffic.totalRequests}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-white/5">
+                        <span className="text-white/40">/API/GAMES HITS</span>
+                        <span className="text-cyan-300 font-bold font-mono">{apiReport.traffic.endpointCounts?.games ?? 0}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-white/5">
+                        <span className="text-white/40">/API/LEADERBOARD HITS</span>
+                        <span className="text-cyan-300 font-bold font-mono">{apiReport.traffic.endpointCounts?.leaderboard ?? 0}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-white/5">
+                        <span className="text-white/40">/API/AUTH HITS</span>
+                        <span className="text-cyan-300 font-bold font-mono">{apiReport.traffic.endpointCounts?.auth ?? 0}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-white/5">
+                        <span className="text-white/40">AVG RESPONSE LATENCY</span>
+                        <span className="text-emerald-400 font-bold font-mono">{apiReport.traffic.averageLatencyMs} ms</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="text-white/40">CACHE-CONTROL HEADER</span>
+                        <span className={`font-bold font-mono ${apiReport.traffic.cacheControlVerified ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {apiReport.traffic.cacheControlVerified ? 'NO-STORE ✓' : 'MISSING'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Module 5: All-Games Content & Health Checker */}
+              <div className="p-5 rounded-2xl bg-white/[0.02] border border-rose-500/20 backdrop-blur-md lg:col-span-2">
+                <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🎮</span>
+                    <h4 className="text-xs font-black tracking-wider uppercase text-rose-400">
+                      MODULE 5: ALL-GAMES CONTENT & HEALTH CHECKER
+                    </h4>
+                  </div>
+                  <span className="text-[9px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/30 font-bold">
+                    LIVE DB COUNTS
+                  </span>
+                </div>
+
+                {apiReport?.gamesContent ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                        <div className="text-white/40 text-[9px] uppercase tracking-wider">HL QUESTIONS</div>
+                        <div className="text-cyan-300 font-bold font-mono">{apiReport.gamesContent.hl_questions.total} <span className="text-white/40">({apiReport.gamesContent.hl_questions.unused} fresh)</span></div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                        <div className="text-white/40 text-[9px] uppercase tracking-wider">TURING SCENARIOS</div>
+                        <div className="text-cyan-300 font-bold font-mono">{apiReport.gamesContent.turing_scenarios.total}</div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                        <div className="text-white/40 text-[9px] uppercase tracking-wider">SURVIVAL SCENARIOS</div>
+                        <div className="text-cyan-300 font-bold font-mono">{apiReport.gamesContent.survival_scenarios.total}</div>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5">
+                        <div className="text-white/40 text-[9px] uppercase tracking-wider">LEADERBOARD ROWS</div>
+                        <div className="text-cyan-300 font-bold font-mono">{Object.values(apiReport.gamesContent.leaderboards).reduce((a, b) => a + b, 0)}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {GAME_DEFINITIONS.map((game) => {
+                        const online = apiReport.gamesContent!.gameStatus[game.id] !== false
+                        const lb = apiReport.gamesContent!.leaderboards[game.id]
+                        const hasContentPool =
+                          game.id === 'higher_lower' ? apiReport.gamesContent!.hl_questions.total > 0
+                          : game.id === 'turing_test' ? apiReport.gamesContent!.turing_scenarios.total > 0
+                          : game.id === 'survival' ? apiReport.gamesContent!.survival_scenarios.total > 0
+                          : true
+                        return (
+                          <div key={game.id} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11px] ${
+                            online
+                              ? 'bg-emerald-950/15 border-emerald-500/25'
+                              : 'bg-red-950/15 border-red-500/40'
+                          }`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span>{game.icon}</span>
+                              <span className="text-white/80 font-bold truncate">{game.name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0 font-mono text-[9px]">
+                              {lb !== undefined && <span className="text-white/40">LB:{lb}</span>}
+                              {game.id === 'higher_lower' && <span className="text-white/40">Q:{apiReport.gamesContent!.hl_questions.total}</span>}
+                              {game.id === 'turing_test' && <span className="text-white/40">Q:{apiReport.gamesContent!.turing_scenarios.total}</span>}
+                              {game.id === 'survival' && <span className="text-white/40">Q:{apiReport.gamesContent!.survival_scenarios.total}</span>}
+                              <span className={online ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                                {online ? 'ONLINE' : 'OFFLINE'}
+                              </span>
+                              {!hasContentPool && <span className="text-amber-400 font-bold">POOL:EMPTY</span>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-white/40 text-center py-4 text-xs">Click "RUN ALL DIAGNOSTICS" to inspect game content health</div>
+                )}
               </div>
             </div>
 

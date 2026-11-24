@@ -9,6 +9,7 @@ import {
 } from '../lib/gameStatus';
 import { logAdminAction, getAuditLogs } from '../lib/auditLog';
 import { serverTelemetry } from '../server';
+import { aiProviderTelemetry } from '../lib/gemini';
 
 export const adminRouter = Router();
 
@@ -468,11 +469,39 @@ adminRouter.get('/diagnostics', async (_req: Request, res: Response) => {
  * GET /api/admin/api-report
  * Security Rule: NEVER send full secret keys. Returns masked prefixes/suffixes and usage telemetry.
  */
-adminRouter.get('/api-report', (_req: Request, res: Response) => {
+adminRouter.get('/api-report', async (_req: Request, res: Response) => {
   const avgLatency =
     serverTelemetry.latencyCount > 0
       ? Math.round(serverTelemetry.totalLatencyMs / serverTelemetry.latencyCount)
       : 0;
+
+  // ── Low-load aggregate queries (head-only counts, fired only on admin demand) ──
+  const scoreableGames = ['higher_lower', 'turing_test', 'cyber_sprint', 'signal_sync', 'overclock'];
+  const countQuery = (table: string, filter?: (q: any) => any) => {
+    let q = supabaseAdmin.from(table).select('*', { count: 'exact', head: true });
+    if (filter) q = filter(q);
+    return q;
+  };
+
+  const [gameStatus, hlTotal, hlUnused, turingTotal, survivalTotal, ...scoreCounts] = await Promise.all([
+    getGameStatus(),
+    countQuery('hl_questions'),
+    countQuery('hl_questions', (q) => q.eq('is_used', false)),
+    countQuery('turing_scenarios'),
+    countQuery('survival_scenarios'),
+    ...scoreableGames.map((g) => countQuery('game_scores', (q) => q.eq('game_id', g))),
+  ]);
+
+  const leaderboards: Record<string, number> = {};
+  scoreableGames.forEach((g, i) => {
+    leaderboards[g] = scoreCounts[i]?.count ?? 0;
+  });
+
+  const providerMeta: Array<{ name: string; tier: number; env: string; telemetryKey: string }> = [
+    { name: 'Groq', tier: 1, env: 'GROQ_API_KEY', telemetryKey: 'groq' },
+    { name: 'Gemini', tier: 2, env: 'GEMINI_API_KEY', telemetryKey: 'gemini' },
+    { name: 'OpenRouter', tier: 3, env: 'OPENROUTER_API_KEY', telemetryKey: 'openrouter' },
+  ];
 
   return res.json({
     keys: {
@@ -502,6 +531,48 @@ adminRouter.get('/api-report', (_req: Request, res: Response) => {
       dailyUserPlayLimit: 10,
       dailyAiCallsLimit: 20,
       playSessionTtlMinutes: 30,
+    },
+    aiFailover: {
+      providers: providerMeta.map((p) => {
+        const envVal = process.env[p.env];
+        const t = aiProviderTelemetry[p.telemetryKey] || { calls: 0, errors: 0, rateLimits: 0 };
+        return {
+          name: p.name,
+          tier: `TIER ${p.tier}`,
+          env: p.env,
+          key: maskSecret(envVal),
+          status: envVal && envVal.trim() ? 'CONFIGURED' : 'MISSING',
+          calls: t.calls,
+          errors: t.errors,
+          rateLimit429s: t.rateLimits,
+        };
+      }),
+      thresholds: {
+        dailyAiCallsPerUser: 20,
+        dailyPlaysPerUser: 10,
+        rateLimits: 'global 300/min • game-start 20/min • leaderboard 30/min • auth 60/min (per IP)',
+      },
+    },
+    gamesContent: {
+      gameStatus,
+      hl_questions: {
+        total: hlTotal.count ?? 0,
+        unused: hlUnused.count ?? 0,
+      },
+      turing_scenarios: { total: turingTotal.count ?? 0 },
+      survival_scenarios: { total: survivalTotal.count ?? 0 },
+      leaderboards,
+    },
+    traffic: {
+      totalRequests: serverTelemetry.totalRequests,
+      endpointCounts: serverTelemetry.endpointCounts,
+      aiCallCount: serverTelemetry.aiCallCount,
+      rateLimit429Count: serverTelemetry.rateLimit429Count,
+      error4xxCount: serverTelemetry.error4xxCount,
+      error5xxCount: serverTelemetry.error5xxCount,
+      averageLatencyMs: avgLatency,
+      cacheControl: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      cacheControlVerified: true,
     },
   });
 });

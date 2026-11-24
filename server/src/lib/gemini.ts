@@ -154,6 +154,28 @@ export function safeParseJson<T>(raw: string, fallback?: T): T {
 
 // ── 3-TIER AI FAILOVER ENGINE ────────────────────────────────────────────────
 
+/** Per-provider call telemetry for the admin API report (in-memory, resets on boot). */
+export const aiProviderTelemetry: Record<string, { calls: number; errors: number; rateLimits: number }> = {
+  groq: { calls: 0, errors: 0, rateLimits: 0 },
+  gemini: { calls: 0, errors: 0, rateLimits: 0 },
+  openrouter: { calls: 0, errors: 0, rateLimits: 0 },
+};
+
+function recordAiProvider(provider: keyof typeof aiProviderTelemetry, ok: boolean, rateLimited = false) {
+  const t = aiProviderTelemetry[provider];
+  t.calls += 1;
+  if (!ok) t.errors += 1;
+  if (rateLimited) t.rateLimits += 1;
+}
+
+function isRateLimitError(err: any): boolean {
+  return (
+    err?.status === 429 ||
+    err?.code === 'rate_limit_exceeded' ||
+    /429|rate.?limit/i.test(String(err?.message || ''))
+  );
+}
+
 /**
  * Unified AI text generator with 3-tier failover:
  * Tier 1 (Groq): openai/gpt-oss-20b (Fastest)
@@ -196,9 +218,11 @@ export async function generateAIText(
       if (!content.trim()) throw new Error('Empty response from Groq');
 
       console.log('[AI Failover] Tier 1 (Groq) succeeded.');
+      recordAiProvider('groq', true);
       return stripMarkdownFences(content);
     } catch (err: any) {
       console.warn(`[AI Failover] Tier 1 (Groq) failed: ${err.message || err}`);
+      recordAiProvider('groq', false, isRateLimitError(err));
       errors.groq = err.message || String(err);
     }
   } else {
@@ -235,6 +259,7 @@ export async function generateAIText(
       if (!content.trim()) throw new Error('Empty response from Gemini');
 
       console.log('[AI Failover] Tier 2 (Gemini) succeeded.');
+      recordAiProvider('gemini', true);
       return stripMarkdownFences(content);
     } catch (err: any) {
       // Attempt fallback to gemini-flash-latest on transient error
@@ -256,10 +281,12 @@ export async function generateAIText(
         const retryContent = retryRes.text || '';
         if (retryContent.trim()) {
           console.log('[AI Failover] Tier 2 (Gemini fallback model) succeeded.');
+          recordAiProvider('gemini', true);
           return stripMarkdownFences(retryContent);
         }
       } catch (retryErr: any) {
         console.warn(`[AI Failover] Tier 2 (Gemini) failed: ${retryErr.message || retryErr}`);
+        recordAiProvider('gemini', false, isRateLimitError(retryErr));
         errors.gemini = retryErr.message || String(retryErr);
       }
     }
@@ -316,9 +343,11 @@ export async function generateAIText(
       if (!content.trim()) throw new Error('Empty response from OpenRouter');
 
       console.log('[AI Failover] Tier 3 (OpenRouter) succeeded.');
+      recordAiProvider('openrouter', true);
       return stripMarkdownFences(content);
     } catch (err: any) {
       console.warn(`[AI Failover] Tier 3 (OpenRouter) failed: ${err.message || err}`);
+      recordAiProvider('openrouter', false, isRateLimitError(err));
       errors.openrouter = err.message || String(err);
     }
   } else {
