@@ -91,8 +91,20 @@ export default function AdminConsole() {
   }, [])
 
   useEffect(() => {
+    window.scrollTo(0, 0)
+    if (window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
     loadAllData()
   }, [loadAllData])
+
+  const scrollToSection = (id: string) => {
+    playClick()
+    const el = document.getElementById(id)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   // ── Maintenance Toggle ──
   const toggleMaintenance = async (nextState: boolean) => {
@@ -267,7 +279,7 @@ export default function AdminConsole() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 font-mono text-xs sm:text-sm selection:bg-rose-500 selection:text-white pb-24">
+    <div className="min-h-screen w-full overflow-x-clip bg-black text-zinc-100 font-mono text-xs sm:text-sm selection:bg-rose-500 selection:text-white pb-36">
       {/* ── Fixed Top Navigation & Quick Anchors ── */}
       <nav className="sticky top-0 z-50 bg-zinc-950/95 border-b border-zinc-800 backdrop-blur-md px-4 py-3 sm:px-8">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -283,32 +295,36 @@ export default function AdminConsole() {
             </span>
           </div>
 
-          {/* Anchor Buttons */}
+          {/* Jump Buttons (No Hash Mutation) */}
           <div className="flex items-center gap-2 overflow-x-auto text-[11px] scrollbar-none">
-            <a
-              href="#switches"
-              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            <button
+              type="button"
+              onClick={() => scrollToSection('switches')}
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
             >
               KILL SWITCHES
-            </a>
-            <a
-              href="#users"
-              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('users')}
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
             >
               USERS
-            </a>
-            <a
-              href="#health"
-              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('health')}
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
             >
               SYSTEM HEALTH
-            </a>
-            <a
-              href="#logs"
-              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('logs')}
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
             >
               AUDIT LOGS
-            </a>
+            </button>
           </div>
 
           {/* Quick Actions */}
@@ -423,7 +439,7 @@ export default function AdminConsole() {
         )}
 
         {/* ── SECTION 1: Master Kill Switches ── */}
-        <section id="switches" className="scroll-mt-20 space-y-4">
+        <section id="switches" className="scroll-mt-24 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
             <div>
               <h2 className="text-lg font-black tracking-wider text-rose-400 uppercase flex items-center gap-2">
@@ -522,7 +538,7 @@ export default function AdminConsole() {
         </section>
 
         {/* ── SECTION 2: User Database ── */}
-        <section id="users" className="scroll-mt-20 space-y-4">
+        <section id="users" className="scroll-mt-24 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
             <div>
               <h2 className="text-lg font-black tracking-wider text-cyan-400 uppercase flex items-center gap-2">
@@ -685,7 +701,7 @@ export default function AdminConsole() {
         </section>
 
         {/* ── SECTION 3: System & API Health ── */}
-        <section id="health" className="scroll-mt-20 space-y-4">
+        <section id="health" className="scroll-mt-24 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
             <div>
               <h2 className="text-lg font-black tracking-wider text-emerald-400 uppercase flex items-center gap-2">
@@ -889,7 +905,7 @@ export default function AdminConsole() {
         </section>
 
         {/* ── SECTION 4: Audit Logs ── */}
-        <section id="logs" className="scroll-mt-20 space-y-4">
+        <section id="logs" className="scroll-mt-24 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
             <div>
               <h2 className="text-lg font-black tracking-wider text-amber-400 uppercase flex items-center gap-2">
