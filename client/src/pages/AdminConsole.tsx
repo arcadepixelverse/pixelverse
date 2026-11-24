@@ -646,6 +646,12 @@ export function AdminConsole() {
     ? Object.values(stats.gameStatus).filter(Boolean).length
     : 0
 
+  // Safe tab fallback: any unrecognized tab value renders the watchdog view.
+  const VALID_TABS = ['watchdog', 'diagnostics', 'users', 'audit'] as const
+  const safeTab = (VALID_TABS as readonly string[]).includes(activeTab)
+    ? activeTab
+    : 'watchdog'
+
   return (
     <div className="min-h-screen bg-[#070709] text-white font-mono selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* ── Top Hacker Status Banner ────────────────────────────────────────── */}
@@ -710,54 +716,117 @@ export function AdminConsole() {
         )}
       </AnimatePresence>
 
-      {/* ── Navigation Tabs ─────────────────────────────────────────────────── */}
-      <div className="border-b border-white/10 bg-[#0A0A0F] px-4 sm:px-6">
-        <div className="flex gap-1 overflow-x-auto py-2">
+      <main className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
+        {/* ── Live System Pulse Cards (always visible) ──────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { id: 'watchdog', label: '01 // WATCHDOG COMMAND', badge: stats?.maintenance_mode ? 'MAINTENANCE' : 'NORMAL' },
-            { id: 'diagnostics', label: '02 // DIAGNOSTICS & DEEP SCAN', badge: '5 CHECKS' },
-            { id: 'users', label: '03 // USER DATABASE', badge: `${users.length} PROFILES` },
-            { id: 'audit', label: '04 // AUDIT LOGS', badge: `${auditLogs.length} LOGS` },
-          ].map((tab) => {
-            const isActive = activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => {
-                  if (!isActive) playClick()
-                  setActiveTab(tab.id as any)
-                  if (tab.id === 'diagnostics' && !diagnostics) {
-                    handleRunMasterScan()
-                  }
-                }}
-                className={`px-4 py-2.5 rounded-lg text-xs font-black tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
-                  isActive
-                    ? 'bg-cyan-500/15 border border-cyan-400 text-cyan-300 shadow-[0_0_20px_rgba(0,245,255,0.2)]'
-                    : 'bg-white/[0.02] border border-transparent text-white/50 hover:text-white hover:bg-white/[0.05]'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
+            {
+              label: 'ACTIVE MODULES',
+              value: `${activeGamesCount} / 10`,
+              sub: activeGamesCount === 10 ? 'ALL SYSTEMS GO' : `${10 - activeGamesCount} OFFLINE`,
+              color: activeGamesCount === 10 ? 'text-emerald-400' : 'text-amber-400',
+              border: activeGamesCount === 10 ? 'border-emerald-500/30' : 'border-amber-500/30',
+            },
+            {
+              label: 'TOTAL USERS',
+              value: stats?.totalUsers ?? '...',
+              sub: 'AUTH.USERS',
+              color: 'text-cyan-400',
+              border: 'border-cyan-500/30',
+            },
+            {
+              label: 'PLAYS TODAY',
+              value: stats?.totalPlaysToday ?? '...',
+              sub: 'ROLLOVER @ 00:00 UTC',
+              color: 'text-purple-400',
+              border: 'border-purple-500/30',
+            },
+            {
+              label: 'AI CALLS TODAY',
+              value: stats?.totalAiCallsToday ?? '...',
+              sub: '3-TIER FAILOVER',
+              color: 'text-emerald-400',
+              border: 'border-emerald-500/30',
+            },
+            {
+              label: 'CLIENT RTT',
+              value: clientDiag ? `${clientDiag.rttMs}ms` : '...',
+              sub: 'DIRECT PING',
+              color: 'text-cyan-300',
+              border: 'border-cyan-500/30',
+            },
+            {
+              label: 'SERVER MEMORY',
+              value: diagnostics?.memoryMb ? `${diagnostics.memoryMb.heapUsed}MB` : 'LIVE',
+              sub: diagnostics?.memoryMb ? `RSS ${diagnostics.memoryMb.rss}MB` : 'EXPRESS NODE',
+              color: 'text-amber-400',
+              border: 'border-amber-500/30',
+            },
+          ].map((card, i) => (
+            <div
+              key={i}
+              className={`p-4 rounded-xl bg-white/[0.02] border backdrop-blur-md ${card.border}`}
+            >
+              <div className="text-[10px] text-white/40 tracking-widest uppercase font-semibold mb-1">
+                {card.label}
+              </div>
+              <div className={`text-xl sm:text-2xl font-black font-mono tracking-tight ${card.color}`}>
+                {card.value}
+              </div>
+              <div className="text-[9px] text-white/30 tracking-wider uppercase mt-1">
+                {card.sub}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Navigation Tabs (OP SYSTEM CONSOLE) ───────────────────────────── */}
+        <div className="rounded-2xl border border-cyan-500/25 bg-[#0A0A0F]/90 backdrop-blur-md px-2 sm:px-3 shadow-[0_0_30px_rgba(0,245,255,0.06)]">
+          <div className="flex gap-1.5 overflow-x-auto py-2">
+            {[
+              { id: 'watchdog', label: '01 // WATCHDOG & KILL SWITCHES', badge: stats?.maintenance_mode ? 'MAINTENANCE' : 'NORMAL' },
+              { id: 'diagnostics', label: '02 // DEEP SYSTEM DIAGNOSTICS', badge: '5 CHECKS' },
+              { id: 'users', label: '03 // USER DATABASE', badge: `${users.length} PROFILES` },
+              { id: 'audit', label: '04 // AUDIT LOGS', badge: `${auditLogs.length} LOGS` },
+            ].map((tab) => {
+              const isActive = safeTab === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    if (!isActive) playClick()
+                    setActiveTab(tab.id as any)
+                    if (tab.id === 'diagnostics' && !diagnostics) {
+                      handleRunMasterScan()
+                    }
+                  }}
+                  className={`px-4 py-2.5 rounded-lg text-xs font-black tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
                     isActive
-                      ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/40'
-                      : 'bg-white/10 text-white/40'
+                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-200 shadow-[0_0_22px_rgba(0,245,255,0.35)]'
+                      : 'bg-white/[0.03] border border-white/10 text-white/55 hover:text-white hover:bg-white/[0.07] hover:border-white/20'
                   }`}
                 >
-                  {tab.badge}
-                </span>
-              </button>
-            )
-          })}
+                  <span>{tab.label}</span>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+                      isActive
+                        ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/40'
+                        : 'bg-white/10 text-white/40'
+                    }`}
+                  >
+                    {tab.badge}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </div>
 
-      <main className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* TAB 1: WATCHDOG // COMMAND                                          */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {activeTab === 'watchdog' && (
+        {safeTab === 'watchdog' && (
           <div className="space-y-6">
             {/* Maintenance Mode Emergency Alert Banner */}
             <div
@@ -819,69 +888,6 @@ export function AdminConsole() {
                   {stats?.maintenance_mode ? 'DEACTIVATE MAINTENANCE ↻' : 'ENTER MAINTENANCE MODE ⛔'}
                 </button>
               </div>
-            </div>
-
-            {/* Live System Pulse Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-              {[
-                {
-                  label: 'ACTIVE MODULES',
-                  value: `${activeGamesCount} / 10`,
-                  sub: activeGamesCount === 10 ? 'ALL SYSTEMS GO' : `${10 - activeGamesCount} OFFLINE`,
-                  color: activeGamesCount === 10 ? 'text-emerald-400' : 'text-amber-400',
-                  border: activeGamesCount === 10 ? 'border-emerald-500/30' : 'border-amber-500/30',
-                },
-                {
-                  label: 'TOTAL USERS',
-                  value: stats?.totalUsers ?? '...',
-                  sub: 'AUTH.USERS',
-                  color: 'text-cyan-400',
-                  border: 'border-cyan-500/30',
-                },
-                {
-                  label: 'PLAYS TODAY',
-                  value: stats?.totalPlaysToday ?? '...',
-                  sub: 'ROLLOVER @ 00:00 UTC',
-                  color: 'text-purple-400',
-                  border: 'border-purple-500/30',
-                },
-                {
-                  label: 'AI CALLS TODAY',
-                  value: stats?.totalAiCallsToday ?? '...',
-                  sub: '3-TIER FAILOVER',
-                  color: 'text-emerald-400',
-                  border: 'border-emerald-500/30',
-                },
-                {
-                  label: 'CLIENT RTT',
-                  value: clientDiag ? `${clientDiag.rttMs}ms` : '...',
-                  sub: 'DIRECT PING',
-                  color: 'text-cyan-300',
-                  border: 'border-cyan-500/30',
-                },
-                {
-                  label: 'SERVER MEMORY',
-                  value: diagnostics?.memoryMb ? `${diagnostics.memoryMb.heapUsed}MB` : 'LIVE',
-                  sub: diagnostics?.memoryMb ? `RSS ${diagnostics.memoryMb.rss}MB` : 'EXPRESS NODE',
-                  color: 'text-amber-400',
-                  border: 'border-amber-500/30',
-                },
-              ].map((card, i) => (
-                <div
-                  key={i}
-                  className={`p-4 rounded-xl bg-white/[0.02] border backdrop-blur-md ${card.border}`}
-                >
-                  <div className="text-[10px] text-white/40 tracking-widest uppercase font-semibold mb-1">
-                    {card.label}
-                  </div>
-                  <div className={`text-xl sm:text-2xl font-black font-mono tracking-tight ${card.color}`}>
-                    {card.value}
-                  </div>
-                  <div className="text-[9px] text-white/30 tracking-wider uppercase mt-1">
-                    {card.sub}
-                  </div>
-                </div>
-              ))}
             </div>
 
             {/* Emergency Controls Header */}
@@ -990,7 +996,7 @@ export function AdminConsole() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* TAB 2: DIAGNOSTICS // DEEP SCAN                                     */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {activeTab === 'diagnostics' && (
+        {safeTab === 'diagnostics' && (
           <div className="space-y-6">
             {/* Master Scan Trigger Banner */}
             <div className="p-5 rounded-2xl bg-gradient-to-r from-cyan-950/30 via-black to-purple-950/30 border border-cyan-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1262,7 +1268,7 @@ export function AdminConsole() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* TAB 3: USER DATABASE                                                */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {activeTab === 'users' && (
+        {safeTab === 'users' && (
           <div className="space-y-4">
             {/* Search & Filter Toolbar */}
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3">
@@ -1417,7 +1423,7 @@ export function AdminConsole() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* TAB 4: AUDIT LOGS                                                   */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {activeTab === 'audit' && (
+        {safeTab === 'audit' && (
           <div className="space-y-4">
             {/* Audit Toolbar */}
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3">
