@@ -29,14 +29,21 @@ const ALL_GAMES = [
 ]
 
 export default function AdminConsole() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [stats, setStats] = useState<{
     totalUsers: number
     totalAiCallsToday: number
     totalPlaysToday: number
     maintenance_mode: boolean
     gameStatus: Record<string, boolean>
-  } | null>(null)
+  }>({
+    totalUsers: 0,
+    totalAiCallsToday: 0,
+    totalPlaysToday: 0,
+    maintenance_mode: false,
+    gameStatus: {},
+  })
 
   const [users, setUsers] = useState<any[]>([])
   const [diagnostics, setDiagnostics] = useState<any>(null)
@@ -55,35 +62,79 @@ export default function AdminConsole() {
     setTimeout(() => setBannerMessage(null), 4000)
   }
 
+  const safeFetchJson = async (endpoint: string) => {
+    const res = await apiFetch(endpoint)
+    const text = await res.text()
+    const trimmed = text.trim()
+
+    // Detect if backend returned an HTML document (e.g. Render waking up, 502/504 Bad Gateway, or Cloudflare Worker fallback)
+    if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html') || trimmed.includes('<body')) {
+      throw new Error(`${endpoint} returned HTML document (${res.status} ${res.statusText || 'OK'}) instead of JSON`)
+    }
+
+    if (!res.ok) {
+      throw new Error(`${endpoint} failed with HTTP ${res.status}: ${trimmed.slice(0, 100)}`)
+    }
+
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error(`${endpoint} returned invalid JSON: ${trimmed.slice(0, 80)}`)
+    }
+  }
+
   const loadAllData = useCallback(async () => {
     setIsRefreshing(true)
-    try {
-      const [statsRes, usersRes, diagRes, reportRes, logsRes] = await Promise.allSettled([
-        apiFetch('/api/admin/stats'),
-        apiFetch('/api/admin/users'),
-        apiFetch('/api/admin/diagnostics'),
-        apiFetch('/api/admin/api-report'),
-        apiFetch('/api/admin/audit-logs'),
-      ])
+    setErrorMsg(null)
+    const caughtErrors: string[] = []
 
-      if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
-        setStats(await statsRes.value.json())
+    try {
+      // 1. Stats
+      try {
+        const statsData = await safeFetchJson('/api/admin/stats')
+        if (statsData) setStats(statsData)
+      } catch (err: any) {
+        caughtErrors.push(err.message || 'Stats fetch failed')
       }
-      if (usersRes.status === 'fulfilled' && usersRes.value.ok) {
-        setUsers(await usersRes.value.json())
+
+      // 2. Users
+      try {
+        const usersData = await safeFetchJson('/api/admin/users')
+        if (Array.isArray(usersData)) setUsers(usersData)
+      } catch (err: any) {
+        caughtErrors.push(err.message || 'Users fetch failed')
       }
-      if (diagRes.status === 'fulfilled' && diagRes.value.ok) {
-        setDiagnostics(await diagRes.value.json())
+
+      // 3. Diagnostics
+      try {
+        const diagData = await safeFetchJson('/api/admin/diagnostics')
+        if (diagData) setDiagnostics(diagData)
+      } catch (err: any) {
+        caughtErrors.push(err.message || 'Diagnostics fetch failed')
       }
-      if (reportRes.status === 'fulfilled' && reportRes.value.ok) {
-        setApiReport(await reportRes.value.json())
+
+      // 4. API Report
+      try {
+        const reportData = await safeFetchJson('/api/admin/api-report')
+        if (reportData) setApiReport(reportData)
+      } catch (err: any) {
+        caughtErrors.push(err.message || 'API Report fetch failed')
       }
-      if (logsRes.status === 'fulfilled' && logsRes.value.ok) {
-        setAuditLogs(await logsRes.value.json())
+
+      // 5. Audit Logs
+      try {
+        const logsData = await safeFetchJson('/api/admin/audit-logs')
+        if (Array.isArray(logsData)) setAuditLogs(logsData)
+      } catch (err: any) {
+        caughtErrors.push(err.message || 'Audit Logs fetch failed')
       }
-    } catch (err: any) {
-      console.error('[AdminConsole] Error loading data:', err)
-      showBanner('Failed to refresh data: ' + (err.message || 'Network error'), true)
+
+      if (caughtErrors.length > 0) {
+        setErrorMsg(caughtErrors.join(' • '))
+      }
+    } catch (globalErr: any) {
+      console.error('[AdminConsole] Global fetch error:', globalErr)
+      setErrorMsg(globalErr?.message || 'Critical network error during console data fetch')
     } finally {
       setIsLoading(false)
       setIsRefreshing(false)
@@ -278,6 +329,45 @@ export default function AdminConsole() {
     return `${s}s`
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-cyan-500 font-mono text-center select-none">
+        <div className="text-xl sm:text-2xl font-black uppercase tracking-[0.25em] animate-pulse">
+          INITIALIZING OVERLORD PROTOCOLS...
+        </div>
+        <p className="mt-4 text-xs text-cyan-500/50 uppercase tracking-widest">
+          SECURE ENCLAVE HANDSHAKE // SYNCING AUTH STATE
+        </p>
+      </div>
+    )
+  }
+
+  const isOwnerUser = Boolean(
+    user?.email &&
+      (user.email.toLowerCase().trim() === 'pritisinghmgs@gmail.com' ||
+        user.email.toLowerCase().trim() === 'arcade.pixelverse@gmail.com' ||
+        isOwner(user.email))
+  )
+
+  if (!user || !isOwnerUser) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-red-500 font-mono text-center select-none">
+        <div className="text-xl sm:text-2xl font-black uppercase tracking-[0.2em]">
+          ACCESS DENIED: CLEARANCE LEVEL TOO LOW.
+        </div>
+        <p className="mt-4 text-xs text-red-400/60 uppercase tracking-wider">
+          DETECTED IDENTITY: {user?.email || 'UNAUTHENTICATED SESSION'}
+        </p>
+        <Link
+          to="/"
+          className="mt-6 px-6 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/50 text-xs font-bold uppercase tracking-wider transition"
+        >
+          ← RETURN TO SAFE ZONE
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen w-full overflow-x-clip bg-black text-zinc-100 font-mono text-xs sm:text-sm selection:bg-rose-500 selection:text-white pb-36">
       {/* ── Fixed Top Navigation & Quick Anchors ── */}
@@ -361,6 +451,36 @@ export default function AdminConsole() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 space-y-12">
+        {/* ── Massive System Panic Red Neon Box (if backend fails or returns HTML) ── */}
+        {errorMsg && (
+          <div className="p-6 rounded-2xl bg-red-950/95 border-2 border-red-500 shadow-[0_0_60px_rgba(255,0,0,0.7)] text-red-100 font-mono space-y-3">
+            <div className="flex items-center gap-3 text-base sm:text-lg font-black text-red-400 uppercase tracking-widest">
+              <span className="text-2xl animate-pulse">🚨</span>
+              <span>SYSTEM PANIC: {errorMsg}</span>
+            </div>
+            <p className="text-xs text-red-300/80 leading-relaxed">
+              API communication fault detected (backend cold start, HTTP failure, or HTML response). The console below is running with default baseline values.
+            </p>
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={loadAllData}
+                disabled={isRefreshing}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider cursor-pointer transition shadow-lg disabled:opacity-50"
+              >
+                {isRefreshing ? 'RETRYING...' : 'RELOAD OVERLORD LINK ↻'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setErrorMsg(null)}
+                className="px-3 py-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 text-xs uppercase tracking-wider cursor-pointer border border-zinc-700"
+              >
+                DISMISS
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Top Status Bar (4 Key Stat Boxes) ── */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {/* Online Games */}
