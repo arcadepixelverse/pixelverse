@@ -189,16 +189,23 @@ app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth'
       ? (profileRes.data?.daily_plays ?? 0)
       : 0;
 
+    const isVip = profileRes.data?.is_vip === true;
+    const dailyLimit = isVip ? 25 : 10;
+    const usedOrbs = effectiveDailyPlays;
+    const remainingOrbs = Math.max(0, dailyLimit - usedOrbs);
+
     return res.json({
       id: userId,
       email,
       isAdmin,
       todayUsage: dailyRes.data?.ai_calls_count || 0,
+      usedOrbs,
+      dailyLimit,
+      remainingOrbs,
+      isVip,
       daily_plays: effectiveDailyPlays,
       total_plays: profileRes.data?.total_plays ?? 0,
       is_banned: profileRes.data?.is_banned ?? false,
-      isVip: profileRes.data?.is_vip === true,
-      dailyLimit: profileRes.data?.is_vip === true ? 25 : 10,
     });
   } catch (err: any) {
     console.error('[auth/me] Unexpected error:', err);

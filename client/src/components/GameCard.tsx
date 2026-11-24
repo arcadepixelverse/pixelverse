@@ -135,6 +135,8 @@ export function GameCard({
             className={`flex-shrink-0 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
               costBadge === '1 ORB'
                 ? 'border-amber-400/40 text-amber-300 bg-amber-400/10'
+                : costBadge === 'UNLIMITED // FREE PLAY'
+                ? 'border-emerald-400/40 text-emerald-300 bg-emerald-400/10 shadow-[0_0_8px_rgba(52,211,153,0.15)]'
                 : 'border-white/15 text-white/50 bg-white/[0.04]'
             }`}
           >

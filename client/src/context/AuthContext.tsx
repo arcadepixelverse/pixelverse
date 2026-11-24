@@ -10,6 +10,8 @@ interface AuthContextType {
   isAdmin: boolean
   accessToken: string | null
   todayUsage: number
+  usedOrbs: number
+  remainingOrbs: number
   totalPlays: number
   isVip: boolean
   dailyLimit: number
@@ -19,7 +21,15 @@ interface AuthContextType {
   refreshUsage: () => Promise<void>
   refreshQuota: () => Promise<void>
   refreshUser: () => Promise<void>
-  syncPlaySession: (data: { todayUsage?: number; totalPlays?: number; remainingPlays?: number }) => void
+  syncPlaySession: (data: {
+    todayUsage?: number
+    totalPlays?: number
+    remainingPlays?: number
+    usedOrbs?: number
+    remainingOrbs?: number
+    dailyLimit?: number
+  }) => void
+  updateQuota: (quota: Partial<{ usedOrbs: number; remainingOrbs: number; dailyLimit: number; todayUsage: number }>) => void
 }
 
 const KNOWN_ADMINS = [
@@ -36,6 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [todayUsage, setTodayUsage] = useState<number>(0)
+  const [usedOrbs, setUsedOrbs] = useState<number>(0)
+  const [remainingOrbs, setRemainingOrbs] = useState<number>(10)
   const [totalPlays, setTotalPlays] = useState<number>(0)
   const [isVip, setIsVip] = useState<boolean>(false)
   const [dailyLimit, setDailyLimit] = useState<number>(10)
@@ -52,6 +64,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(null)
         setUser(null)
         setTodayUsage(0)
+        setUsedOrbs(0)
+        setRemainingOrbs(10)
         setTotalPlays(0)
         setIsVip(false)
         setDailyLimit(10)
@@ -59,17 +73,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (res.ok) {
         const data = await res.json()
+        const vip = data.isVip === true
+        const limit = typeof data.dailyLimit === 'number' && data.dailyLimit > 0 ? data.dailyLimit : (vip ? 25 : 10)
+        const used = typeof data.usedOrbs === 'number'
+          ? data.usedOrbs
+          : typeof data.daily_plays === 'number'
+          ? data.daily_plays
+          : (typeof data.todayUsage === 'number' ? data.todayUsage : 0)
+        const remaining = typeof data.remainingOrbs === 'number'
+          ? data.remainingOrbs
+          : Math.max(0, limit - used)
+
+        setIsVip(vip)
+        setDailyLimit(limit)
+        setUsedOrbs(used)
+        setRemainingOrbs(remaining)
+
         if (typeof data.todayUsage === 'number') {
           setTodayUsage(data.todayUsage)
         }
         if (typeof data.total_plays === 'number') {
           setTotalPlays(data.total_plays)
-        }
-        if (typeof data.isVip === 'boolean') {
-          setIsVip(data.isVip)
-        }
-        if (typeof data.dailyLimit === 'number' && data.dailyLimit > 0) {
-          setDailyLimit(data.dailyLimit)
         }
         if (typeof data.isAdmin === 'boolean') {
           setIsAdmin(data.isAdmin)
@@ -78,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (err) {
-      console.warn('[AuthContext] Failed to hydrate todayUsage:', err)
+      console.warn('[AuthContext] Failed to hydrate user quota:', err)
     }
   }
 
@@ -151,6 +175,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setIsAdmin(false)
     setTodayUsage(0)
+    setUsedOrbs(0)
+    setRemainingOrbs(10)
     setTotalPlays(0)
     setIsVip(false)
     setDailyLimit(10)
@@ -162,13 +188,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const syncPlaySession = (data: { todayUsage?: number; totalPlays?: number; remainingPlays?: number }) => {
-    if (typeof data.todayUsage === 'number') {
-      setTodayUsage(data.todayUsage)
+  const syncPlaySession = (data: {
+    todayUsage?: number
+    totalPlays?: number
+    remainingPlays?: number
+    usedOrbs?: number
+    remainingOrbs?: number
+    dailyLimit?: number
+  }) => {
+    const used = typeof data.usedOrbs === 'number'
+      ? data.usedOrbs
+      : (typeof data.todayUsage === 'number' ? data.todayUsage : undefined)
+    const remaining = typeof data.remainingOrbs === 'number'
+      ? data.remainingOrbs
+      : (typeof data.remainingPlays === 'number' ? data.remainingPlays : undefined)
+
+    if (typeof used === 'number') {
+      setUsedOrbs(used)
+      setTodayUsage(used)
+    }
+    if (typeof remaining === 'number') {
+      setRemainingOrbs(remaining)
     }
     if (typeof data.totalPlays === 'number') {
       setTotalPlays(data.totalPlays)
     }
+    if (typeof data.dailyLimit === 'number' && data.dailyLimit > 0) {
+      setDailyLimit(data.dailyLimit)
+    }
+  }
+
+  const updateQuota = (quota: Partial<{ usedOrbs: number; remainingOrbs: number; dailyLimit: number; todayUsage: number }>) => {
+    if (typeof quota.usedOrbs === 'number') setUsedOrbs(quota.usedOrbs)
+    if (typeof quota.remainingOrbs === 'number') setRemainingOrbs(quota.remainingOrbs)
+    if (typeof quota.dailyLimit === 'number' && quota.dailyLimit > 0) setDailyLimit(quota.dailyLimit)
+    if (typeof quota.todayUsage === 'number') setTodayUsage(quota.todayUsage)
   }
 
   const accessToken = session?.access_token ?? null
@@ -181,6 +235,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAdmin,
       accessToken,
       todayUsage,
+      usedOrbs,
+      remainingOrbs,
       totalPlays,
       isVip,
       dailyLimit,
@@ -191,8 +247,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshQuota: refreshUsage,
       refreshUser: refreshUsage,
       syncPlaySession,
+      updateQuota,
     }),
-    [user, session, loading, isAdmin, accessToken, todayUsage, totalPlays, isVip, dailyLimit]
+    [user, session, loading, isAdmin, accessToken, todayUsage, usedOrbs, remainingOrbs, totalPlays, isVip, dailyLimit]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

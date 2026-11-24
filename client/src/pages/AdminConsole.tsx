@@ -244,7 +244,6 @@ export const GAME_DEFINITIONS: GameDefinition[] = [
 
 export function AdminConsole() {
   const { user, session } = useAuth()
-  const [activeTab, setActiveTab] = useState<'watchdog' | 'diagnostics' | 'users' | 'audit'>('watchdog')
 
   // Core Data
   const [stats, setStats] = useState<AdminStats | null>(null)
@@ -359,10 +358,12 @@ export function AdminConsole() {
   const syncAllData = useCallback(async () => {
     setLoading(true)
     try {
-      const [statsRes, usersRes, auditRes] = await Promise.all([
+      const [statsRes, usersRes, auditRes, diagRes, reportRes] = await Promise.all([
         apiFetch('/api/admin/stats'),
         apiFetch('/api/admin/users'),
         apiFetch('/api/admin/audit-logs'),
+        apiFetch('/api/admin/diagnostics'),
+        apiFetch('/api/admin/api-report'),
       ])
 
       if (statsRes.ok) {
@@ -376,6 +377,14 @@ export function AdminConsole() {
       if (auditRes.ok) {
         const aData = await auditRes.json()
         setAuditLogs(Array.isArray(aData) ? aData : [])
+      }
+      if (diagRes.ok) {
+        const dData = await diagRes.json()
+        setDiagnostics(dData)
+      }
+      if (reportRes.ok) {
+        const rData = await reportRes.json()
+        setApiReport(rData)
       }
 
       runClientDiagnostics().catch(() => {})
@@ -741,16 +750,10 @@ export function AdminConsole() {
     ? Object.values(stats.gameStatus).filter(Boolean).length
     : 10
 
-  // Safe tab fallback: any unrecognized tab value renders the watchdog view.
-  const VALID_TABS = ['watchdog', 'diagnostics', 'users', 'audit'] as const
-  const safeTab = (VALID_TABS as readonly string[]).includes(activeTab)
-    ? activeTab
-    : 'watchdog'
-
   const isMaintenanceActive = stats?.maintenance_mode ?? false
 
   return (
-    <div className="min-h-screen bg-[#070709] text-white font-mono selection:bg-cyan-500/30 selection:text-cyan-200 opacity-100 visible">
+    <div id="top" className="min-h-screen bg-[#070709] text-white font-mono selection:bg-cyan-500/30 selection:text-cyan-200 opacity-100 visible scroll-smooth">
       {/* ── Top Hacker Status Banner ────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 bg-[#070709]/95 backdrop-blur-md border-b border-white/10 px-4 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
         <div className="flex items-center gap-3 opacity-100 visible">
@@ -872,54 +875,45 @@ export function AdminConsole() {
           ))}
         </div>
 
-        {/* ── Navigation Tabs (OP SYSTEM CONSOLE) ───────────────────────────── */}
-        <div className="rounded-2xl border border-cyan-500/25 bg-[#0A0A0F]/90 backdrop-blur-md px-2 sm:px-3 shadow-[0_0_30px_rgba(0,245,255,0.06)] opacity-100 visible">
+        {/* ── Sticky Anchor Jump Navigation (UNIFIED SINGLE-PAGE CONSOLE) ──── */}
+        <div className="sticky top-[58px] z-30 rounded-2xl border border-cyan-500/25 bg-[#0A0A0F]/95 backdrop-blur-md px-2 sm:px-3 shadow-[0_0_30px_rgba(0,245,255,0.06)] opacity-100 visible">
           <div className="flex flex-wrap gap-1.5 py-2 opacity-100 visible">
             {[
               { id: 'watchdog', label: '01 // WATCHDOG & KILL SWITCHES', badge: isMaintenanceActive ? 'MAINTENANCE' : 'NORMAL' },
-              { id: 'diagnostics', label: '02 // DEEP SYSTEM DIAGNOSTICS', badge: '5 CHECKS' },
-              { id: 'users', label: '03 // USER DATABASE', badge: `${displayUsers.length} PROFILES` },
+              { id: 'users', label: '02 // USER DATABASE', badge: `${displayUsers.length} PROFILES` },
+              { id: 'diagnostics', label: '03 // DEEP SYSTEM DIAGNOSTICS', badge: '5 CHECKS' },
               { id: 'audit', label: '04 // AUDIT LOGS', badge: `${auditLogs.length} LOGS` },
-            ].map((tab) => {
-              const isActive = safeTab === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    if (!isActive) playClick()
-                    setActiveTab(tab.id as any)
-                    if (tab.id === 'diagnostics' && !diagnostics) {
-                      handleRunMasterScan()
-                    }
-                  }}
-                  className={`px-3 py-2 rounded-lg text-[11px] sm:text-xs font-black tracking-wider sm:tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 opacity-100 visible ${
-                    isActive
-                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-200 shadow-[0_0_22px_rgba(0,245,255,0.35)]'
-                      : 'bg-white/[0.03] border border-white/10 text-white/55 hover:text-white hover:bg-white/[0.07] hover:border-white/20'
-                  }`}
-                >
-                  <span className="opacity-100 visible">{tab.label}</span>
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono opacity-100 visible ${
-                      isActive
-                        ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/40'
-                        : 'bg-white/10 text-white/40'
-                    }`}
-                  >
-                    {tab.badge}
-                  </span>
-                </button>
-              )
-            })}
+            ].map((link) => (
+              <a
+                key={link.id}
+                href={`#${link.id}`}
+                onClick={() => playClick()}
+                className="px-3 py-2 rounded-lg text-[11px] sm:text-xs font-black tracking-wider sm:tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 bg-white/[0.03] border border-white/10 text-white/70 hover:text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/10 opacity-100 visible no-underline"
+              >
+                <span className="opacity-100 visible">{link.label}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono bg-white/10 text-white/40 opacity-100 visible">
+                  {link.badge}
+                </span>
+              </a>
+            ))}
           </div>
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* TAB 1: WATCHDOG // COMMAND                                          */}
+        {/* SECTION 1: WATCHDOG & KILL SWITCHES                                 */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {safeTab === 'watchdog' && (
-          <div className="space-y-6 opacity-100 visible">
+        <section id="watchdog" className="space-y-6 opacity-100 visible scroll-mt-28">
+          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
+            <div className="flex items-center gap-2.5 opacity-100 visible">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
+              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
+                01 // MASTER KILL SWITCHES &amp; MAINTENANCE MODE
+              </h2>
+            </div>
+            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
+              ↑ TOP
+            </a>
+          </div>
             {/* Maintenance Mode Emergency Alert Banner */}
             <div
               className={`p-5 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 opacity-100 visible ${
@@ -1082,14 +1076,198 @@ export function AdminConsole() {
                 )
               })}
             </div>
-          </div>
-        )}
+        </section>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* TAB 2: DIAGNOSTICS // DEEP SCAN                                     */}
+        {/* SECTION 2: USER DATABASE                                            */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {safeTab === 'diagnostics' && (
-          <div className="space-y-6 opacity-100 visible">
+        <section id="users" className="space-y-4 opacity-100 visible scroll-mt-28">
+          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
+            <div className="flex items-center gap-2.5 opacity-100 visible">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
+              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
+                02 // USER DATABASE &amp; PROFILES
+              </h2>
+            </div>
+            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
+              ↑ TOP
+            </a>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
+            <div className="flex items-center gap-2 flex-1 min-w-[280px] opacity-100 visible">
+              <span className="text-white/40">🔍</span>
+              <input
+                type="text"
+                placeholder="SEARCH BY EMAIL OR USER ID..."
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 opacity-100 visible"
+              />
+            </div>
+
+            <div className="flex items-center gap-1 opacity-100 visible">
+              {(['all', 'active', 'banned'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setUserFilter(filter)}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer opacity-100 visible ${
+                    userFilter === filter
+                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
+                      : 'bg-white/5 text-white/50 hover:text-white'
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+              <span className="text-[11px] text-white/40 ml-3 opacity-100 visible">
+                {displayUsers.length} OF {users.length > 0 ? users.length : displayUsers.length} PROFILES
+              </span>
+            </div>
+          </div>
+
+          {/* Users Table */}
+          <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.01] opacity-100 visible">
+            <div className="overflow-x-auto opacity-100 visible">
+              <table className="w-full text-left text-xs opacity-100 visible">
+                <thead className="bg-white/5 text-white/40 text-[10px] uppercase tracking-wider border-b border-white/10 opacity-100 visible">
+                  <tr>
+                    <th className="p-3.5">Email</th>
+                    <th className="p-3.5">Tier [FREE / VIP]</th>
+                    <th className="p-3.5">Status [ACTIVE / BANNED]</th>
+                    <th className="p-3.5">Orbs Today</th>
+                    <th className="p-3.5">Total Plays</th>
+                    <th className="p-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 font-mono text-[11px] opacity-100 visible">
+                  {displayUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-white/40 opacity-100 visible">
+                        NO USER PROFILES MATCH SEARCH QUERY.
+                      </td>
+                    </tr>
+                  ) : (
+                    displayUsers.map((u) => {
+                      const daily = u.daily_plays ?? 0
+                      const dailyCap = u.is_vip ? 25 : 10
+                      return (
+                        <tr key={u.id} className="hover:bg-white/[0.02] transition opacity-100 visible">
+                          <td className="p-3.5 opacity-100 visible">
+                            <div className="font-sans font-bold text-white text-xs opacity-100 visible">{u.email}</div>
+                            <div className="text-[9px] text-white/30 truncate max-w-[200px] opacity-100 visible">{u.id}</div>
+                          </td>
+                          <td className="p-3.5 opacity-100 visible">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase opacity-100 visible ${
+                                u.is_vip
+                                  ? 'bg-amber-400/20 border border-amber-400/50 text-amber-300'
+                                  : 'bg-white/10 border border-white/20 text-white/50'
+                              }`}
+                            >
+                              {u.is_vip ? '★ VIP' : 'FREE'}
+                            </span>
+                          </td>
+                          <td className="p-3.5 opacity-100 visible">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase opacity-100 visible ${
+                                u.is_banned
+                                  ? 'bg-red-500/20 border border-red-500/40 text-red-300'
+                                  : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+                              }`}
+                            >
+                              {u.is_banned ? 'BANNED' : 'ACTIVE'}
+                            </span>
+                          </td>
+                          <td className="p-3.5 opacity-100 visible">
+                            <span className={`opacity-100 visible ${daily >= dailyCap ? 'text-red-400 font-bold' : 'text-cyan-300'}`}>
+                              {daily} / {dailyCap}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-white/80 opacity-100 visible">{u.total_plays ?? 0}</td>
+                          <td className="p-3.5 text-right opacity-100 visible">
+                            <div className="flex items-center justify-end gap-1.5 opacity-100 visible">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleVip(u.id, u.is_vip === true)}
+                                disabled={actionLoading}
+                                className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible ${
+                                  u.is_vip
+                                    ? 'bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/40 text-amber-300'
+                                    : 'bg-white/5 hover:bg-white/10 border-white/20 text-white/60'
+                                }`}
+                              >
+                                {u.is_vip ? 'Revoke VIP' : 'Grant VIP'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => (u.is_banned ? handleUnbanUser(u.id) : handleBanUser(u.id))}
+                                disabled={actionLoading}
+                                className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible ${
+                                  u.is_banned
+                                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                                    : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                }`}
+                              >
+                                {u.is_banned ? 'Unban' : 'Ban'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleResetQuota(u.id, u.email)}
+                                disabled={actionLoading}
+                                className="px-2.5 py-1 rounded bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
+                              >
+                                Reset Orbs
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRevokeSession(u.id, u.email)}
+                                disabled={actionLoading}
+                                className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/15 text-white/70 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
+                              >
+                                Logout
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(u.id, u.email)}
+                                disabled={actionLoading}
+                                className="px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
+                              >
+                                Purge
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* SECTION 3: SYSTEM DIAGNOSTICS & TELEMETRY                           */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <section id="diagnostics" className="space-y-6 opacity-100 visible scroll-mt-28">
+          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
+            <div className="flex items-center gap-2.5 opacity-100 visible">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
+              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
+                03 // DEEP SYSTEM DIAGNOSTICS &amp; TELEMETRY
+              </h2>
+            </div>
+            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
+              ↑ TOP
+            </a>
+          </div>
             {/* Master Scan Trigger Banner */}
             <div className="p-4 sm:p-5 rounded-2xl bg-[#0e1017] border border-cyan-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 opacity-100 visible shadow-[0_0_25px_rgba(0,245,255,0.1)]">
               <div className="opacity-100 visible">
@@ -1505,179 +1683,23 @@ export function AdminConsole() {
                 </div>
               </div>
             )}
-          </div>
-        )}
+        </section>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* TAB 3: USER DATABASE                                                */}
+        {/* SECTION 4: AUDIT LOGS & SECURITY TERMINAL                           */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {safeTab === 'users' && (
-          <div className="space-y-4 opacity-100 visible">
-            {/* Search & Filter Toolbar */}
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
-              <div className="flex items-center gap-2 flex-1 min-w-[280px] opacity-100 visible">
-                <span className="text-white/40">🔍</span>
-                <input
-                  type="text"
-                  placeholder="SEARCH BY EMAIL OR USER ID..."
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 opacity-100 visible"
-                />
-              </div>
-
-              <div className="flex items-center gap-1 opacity-100 visible">
-                {(['all', 'active', 'banned'] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    onClick={() => setUserFilter(filter)}
-                    className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer opacity-100 visible ${
-                      userFilter === filter
-                        ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
-                        : 'bg-white/5 text-white/50 hover:text-white'
-                    }`}
-                  >
-                    {filter}
-                  </button>
-                ))}
-                <span className="text-[11px] text-white/40 ml-3 opacity-100 visible">
-                  {displayUsers.length} OF {users.length > 0 ? users.length : displayUsers.length} PROFILES
-                </span>
-              </div>
+        <section id="audit" className="space-y-4 opacity-100 visible scroll-mt-28">
+          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
+            <div className="flex items-center gap-2.5 opacity-100 visible">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
+              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
+                04 // ADMIN AUDIT LOGS &amp; SECURITY TERMINAL
+              </h2>
             </div>
-
-            {/* Users Table */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.01] opacity-100 visible">
-              <div className="overflow-x-auto opacity-100 visible">
-                <table className="w-full text-left text-xs opacity-100 visible">
-                  <thead className="bg-white/5 text-white/40 text-[10px] uppercase tracking-wider border-b border-white/10 opacity-100 visible">
-                    <tr>
-                      <th className="p-3.5">Email</th>
-                      <th className="p-3.5">Tier [FREE / VIP]</th>
-                      <th className="p-3.5">Status [ACTIVE / BANNED]</th>
-                      <th className="p-3.5">Orbs Today</th>
-                      <th className="p-3.5">Total Plays</th>
-                      <th className="p-3.5 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5 font-mono text-[11px] opacity-100 visible">
-                    {displayUsers.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="p-8 text-center text-white/40 opacity-100 visible">
-                          NO USER PROFILES MATCH SEARCH QUERY.
-                        </td>
-                      </tr>
-                    ) : (
-                      displayUsers.map((u) => {
-                        const daily = u.daily_plays ?? 0
-                        const dailyCap = u.is_vip ? 25 : 10
-                        return (
-                          <tr key={u.id} className="hover:bg-white/[0.02] transition opacity-100 visible">
-                            <td className="p-3.5 opacity-100 visible">
-                              <div className="font-sans font-bold text-white text-xs opacity-100 visible">{u.email}</div>
-                              <div className="text-[9px] text-white/30 truncate max-w-[200px] opacity-100 visible">{u.id}</div>
-                            </td>
-                            <td className="p-3.5 opacity-100 visible">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase opacity-100 visible ${
-                                  u.is_vip
-                                    ? 'bg-amber-400/20 border border-amber-400/50 text-amber-300'
-                                    : 'bg-white/10 border border-white/20 text-white/50'
-                                }`}
-                              >
-                                {u.is_vip ? '★ VIP' : 'FREE'}
-                              </span>
-                            </td>
-                            <td className="p-3.5 opacity-100 visible">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase opacity-100 visible ${
-                                  u.is_banned
-                                    ? 'bg-red-500/20 border border-red-500/40 text-red-300'
-                                    : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-                                }`}
-                              >
-                                {u.is_banned ? 'BANNED' : 'ACTIVE'}
-                              </span>
-                            </td>
-                            <td className="p-3.5 opacity-100 visible">
-                              <span className={`opacity-100 visible ${daily >= dailyCap ? 'text-red-400 font-bold' : 'text-cyan-300'}`}>
-                                {daily} / {dailyCap}
-                              </span>
-                            </td>
-                            <td className="p-3.5 text-white/80 opacity-100 visible">{u.total_plays ?? 0}</td>
-                            <td className="p-3.5 text-right opacity-100 visible">
-                              <div className="flex items-center justify-end gap-1.5 opacity-100 visible">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleVip(u.id, u.is_vip === true)}
-                                  disabled={actionLoading}
-                                  className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible ${
-                                    u.is_vip
-                                      ? 'bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/40 text-amber-300'
-                                      : 'bg-white/5 hover:bg-white/10 border-white/20 text-white/60'
-                                  }`}
-                                >
-                                  {u.is_vip ? 'Revoke VIP' : 'Grant VIP'}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => (u.is_banned ? handleUnbanUser(u.id) : handleBanUser(u.id))}
-                                  disabled={actionLoading}
-                                  className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible ${
-                                    u.is_banned
-                                      ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-                                      : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300'
-                                  }`}
-                                >
-                                  {u.is_banned ? 'Unban' : 'Ban'}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleResetQuota(u.id, u.email)}
-                                  disabled={actionLoading}
-                                  className="px-2.5 py-1 rounded bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
-                                >
-                                  Reset Orbs
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleRevokeSession(u.id, u.email)}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/15 text-white/70 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
-                                >
-                                  Logout
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteUser(u.id, u.email)}
-                                  disabled={actionLoading}
-                                  className="px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
-                                >
-                                  Purge
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
+              ↑ TOP
+            </a>
           </div>
-        )}
-
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* TAB 4: AUDIT LOGS                                                   */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {safeTab === 'audit' && (
-          <div className="space-y-4 opacity-100 visible">
             {/* Audit Toolbar */}
             <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
               <div className="flex items-center gap-2 flex-1 min-w-[280px] opacity-100 visible">
@@ -1768,8 +1790,7 @@ export function AdminConsole() {
                 )}
               </div>
             </div>
-          </div>
-        )}
+        </section>
       </main>
 
       {/* ── Maintenance Mode Confirmation Modal ─────────────────────────────── */}

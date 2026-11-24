@@ -163,9 +163,9 @@ gamesRouter.post(
       }
 
       const gameId = data?.id || data?.game_id;
-
-      if ((req as any).playSession?.playSessionId) {
-        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      const session = (req as any).playSession || {};
+      if (session.playSessionId) {
+        res.setHeader('X-Play-Session-Id', session.playSessionId);
       }
 
       return res.json({
@@ -173,7 +173,14 @@ gamesRouter.post(
         secret_role: secret.role,
         initial_ai_message: secret.initial_message,
         difficulty,
-        playSessionId: (req as any).playSession?.playSessionId,
+        playSessionId: session.playSessionId,
+        playSession: session,
+        todayUsage: session.todayUsage,
+        totalPlays: session.totalPlays,
+        remainingPlays: session.remainingPlays,
+        usedOrbs: session.usedOrbs ?? session.todayUsage,
+        remainingOrbs: session.remainingOrbs ?? session.remainingPlays,
+        dailyLimit: session.dailyLimit,
       });
     } catch (err: any) {
       return handleGameError(res, 'jailbreak/start', err, 'Failed to start jailbreak game.');
@@ -514,13 +521,21 @@ gamesRouter.post(
         });
       }
 
-      if ((req as any).playSession?.playSessionId) {
-        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      const session = (req as any).playSession || {};
+      if (session.playSessionId) {
+        res.setHeader('X-Play-Session-Id', session.playSessionId);
       }
 
       return res.json({
         gameId: data.id,
-        playSessionId: (req as any).playSession?.playSessionId,
+        playSessionId: session.playSessionId,
+        playSession: session,
+        todayUsage: session.todayUsage,
+        totalPlays: session.totalPlays,
+        remainingPlays: session.remainingPlays,
+        usedOrbs: session.usedOrbs ?? session.todayUsage,
+        remainingOrbs: session.remainingOrbs ?? session.remainingPlays,
+        dailyLimit: session.dailyLimit,
       });
     } catch (err: any) {
       return handleGameError(res, 'mind-reader/start', err, 'Failed to start Mind Reader game.');
@@ -948,6 +963,7 @@ gamesRouter.post(
       }
 
       // Step 4: Return formatted scenario data with clues
+      const session = (req as any).playSession || {};
       const result: any = {
         scenario: chosen.scenario,
         mode: chosen.mode === 'mcq' ? 'mcq' : 'typing',
@@ -963,11 +979,18 @@ gamesRouter.post(
           : typeof chosen.clues === 'string'
           ? JSON.parse(chosen.clues)
           : ["a rusty pipe", "a puddle of oil", "a loose ceiling bracket"],
-        playSessionId: (req as any).playSession?.playSessionId,
+        playSessionId: session.playSessionId,
+        playSession: session,
+        todayUsage: session.todayUsage,
+        totalPlays: session.totalPlays,
+        remainingPlays: session.remainingPlays,
+        usedOrbs: session.usedOrbs ?? session.todayUsage,
+        remainingOrbs: session.remainingOrbs ?? session.remainingPlays,
+        dailyLimit: session.dailyLimit,
       };
 
-      if ((req as any).playSession?.playSessionId) {
-        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      if (session.playSessionId) {
+        res.setHeader('X-Play-Session-Id', session.playSessionId);
       }
 
       return res.json(result);
@@ -1100,12 +1123,20 @@ gamesRouter.post(
       }
 
       const result = await generateWingmanResponse(safeMode, safeInput);
-      if ((req as any).playSession?.playSessionId) {
-        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      const session = (req as any).playSession || {};
+      if (session.playSessionId) {
+        res.setHeader('X-Play-Session-Id', session.playSessionId);
       }
       return res.json({
         ...result,
-        playSessionId: (req as any).playSession?.playSessionId,
+        playSessionId: session.playSessionId,
+        playSession: session,
+        todayUsage: session.todayUsage,
+        totalPlays: session.totalPlays,
+        remainingPlays: session.remainingPlays,
+        usedOrbs: session.usedOrbs ?? session.todayUsage,
+        remainingOrbs: session.remainingOrbs ?? session.remainingPlays,
+        dailyLimit: session.dailyLimit,
       });
     } catch (err: any) {
       return handleGameError(res, 'wingman/generate', err, 'Failed to generate Wingman response.');
@@ -1116,11 +1147,11 @@ gamesRouter.post(
 /**
  * ── Generic Game Start Gate ───────────────────────────────────────────────────
  * POST /api/games/:gameId/start
- * Used by zero-API games (Overclock, Cyber Sprint, Signal Sync) and clients
+ * Used by zero-API games (Overclock, Cyber Sprint, Signal Sync, Vault) and clients
  * to verify game kill switch, enforce play limit/mutex, and obtain a playSessionId.
  */
 gamesRouter.post(
-  '/:gameId/start',
+  ['/:gameId/start', '/api/games/:gameId/start'],
   requireAuth,
   (req: Request, res: Response, next: NextFunction) => {
     const rawId = req.params.gameId || '';
@@ -1139,9 +1170,14 @@ gamesRouter.post(
     return res.json({
       allowed: true,
       playSessionId: session.playSessionId,
+      playSession: session,
       todayUsage: session.todayUsage,
       totalPlays: session.totalPlays,
       remainingPlays: session.remainingPlays,
+      usedOrbs: session.usedOrbs ?? session.todayUsage,
+      remainingOrbs: session.remainingOrbs ?? session.remainingPlays,
+      dailyLimit: session.dailyLimit,
+      isArcade: session.isArcade ?? false,
     });
   }
 );

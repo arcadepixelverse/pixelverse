@@ -13,6 +13,15 @@ export const SCOREABLE_GAME_IDS = new Set([
   'cyber_sprint',
   'signal_sync',
   'overclock',
+  'vault',
+]);
+
+// Pure arcade games: 0 Orbs, UNLIMITED plays, no daily play deduction
+export const PURE_ARCADE_GAME_IDS = new Set([
+  'overclock',
+  'cyber_sprint',
+  'signal_sync',
+  'vault',
 ]);
 
 const KNOWN_GAME_SEGMENTS = new Set([
@@ -153,8 +162,9 @@ async function withUserLock<T>(userId: string, task: () => Promise<T>): Promise<
  * Strict Game Play Gate Middleware
  * 1. Enforces concurrency protection with a per-user lock.
  * 2. Enforces daily limit (10 plays) with automatic UTC calendar day rollover.
- * 3. Atomically increments daily_plays & total_plays.
- * 4. Issues a single-use 30-minute playSessionId for score validation.
+ * 3. Atomically increments daily_plays & total_plays (for AI/API games only).
+ * 4. Pure Arcade Games (overclock, cyber_sprint, signal_sync, vault) have UNLIMITED plays
+ *    with 0 Orbs cost, but still receive a valid single-use 30-minute playSessionId for anti-cheat leaderboard submission.
  */
 export async function playGate(req: Request, res: Response, next: NextFunction) {
   const userId = req.user?.id;
@@ -164,6 +174,7 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
 
   // Determine game ID from the route path (authoritative), then params/body fallbacks
   const gameId = deriveGameId(req);
+  const isPureArcade = PURE_ARCADE_GAME_IDS.has(gameId);
 
   return withUserLock(userId, async () => {
     try {
@@ -190,16 +201,49 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
       const isVip = profile?.is_vip === true;
       const dailyLimit = isVip ? VIP_PLAY_LIMIT : PLAY_LIMIT;
 
-      // 2. Daily limit check: if >= 10, block with 429
+      // ── Pure Arcade Games (0 Orbs, Unlimited Plays) ────────────────────────
+      if (isPureArcade) {
+        const sessionId = `ps_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        activePlaySessions.set(sessionId, {
+          sessionId,
+          userId,
+          gameId,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + SESSION_TTL_MS,
+          consumed: false,
+        });
+
+        const remaining = Math.max(0, dailyLimit - currentDailyPlays);
+
+        (req as any).playSession = {
+          playSessionId: sessionId,
+          todayUsage: currentDailyPlays,
+          totalPlays: currentTotalPlays,
+          remainingPlays: remaining,
+          usedOrbs: currentDailyPlays,
+          remainingOrbs: remaining,
+          dailyLimit,
+          isArcade: true,
+        };
+
+        console.log(`[playGate] Issued arcade playSession ${sessionId} for user ${userId} on ${gameId} (UNLIMITED FREE PLAY)`);
+        return next();
+      }
+
+      // ── AI / API Games (1 Orb per start) ───────────────────────────────────
+      // 2. Daily limit check: if >= limit, block with 429
       if (currentDailyPlays >= dailyLimit) {
-        console.warn(`[playGate] User ${userId} reached daily play limit: ${currentDailyPlays}/${PLAY_LIMIT}`);
+        console.warn(`[playGate] User ${userId} reached daily play limit: ${currentDailyPlays}/${dailyLimit}`);
         return res.status(429).json({
           error: 'PLAY_LIMIT_REACHED',
-          message: 'You have reached your 10 game limit for today. Come back tomorrow!',
+          message: `You have reached your ${dailyLimit} game limit for today. Come back tomorrow!`,
           daily_plays: currentDailyPlays,
           total_plays: currentTotalPlays,
+          usedOrbs: currentDailyPlays,
           remainingPlays: 0,
+          remainingOrbs: 0,
           max_plays: dailyLimit,
+          dailyLimit,
           isVip,
         });
       }
@@ -257,6 +301,10 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
         todayUsage: nextDaily,
         totalPlays: nextTotal,
         remainingPlays: remaining,
+        usedOrbs: nextDaily,
+        remainingOrbs: remaining,
+        dailyLimit,
+        isArcade: false,
       };
 
       console.log(`[playGate] Issued playSession ${sessionId} for user ${userId} on ${gameId} (${nextDaily}/${dailyLimit})`);

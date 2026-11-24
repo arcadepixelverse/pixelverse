@@ -106,10 +106,10 @@ const GAMES: GameDef[] = [
     icon: '🔒',
     neonClass: 'neon-purple',
     iconBg: 'rgba(255, 126, 182, 0.15)',
-    statusBadge: 'Coming Soon',
-    disabled: true,
+    href: '/games/vault',
     genre: 'Sanctuary',
     difficulty: 'Chill',
+    orbCost: 'ARCADE',
   },
   {
     id: 'wingman',
@@ -168,7 +168,7 @@ const GAMES: GameDef[] = [
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { user, todayUsage, signOut, refreshUsage, isVip, dailyLimit } = useAuth()
+  const { user, usedOrbs, remainingOrbs, signOut, refreshUsage, isVip, dailyLimit } = useAuth()
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
   const [gameStatus, setGameStatus] = useState<Record<string, boolean>>({})
   const [pendingOrbGame, setPendingOrbGame] = useState<GameDef | null>(null)
@@ -195,7 +195,7 @@ export function Dashboard() {
   }, [])
 
   // Remaining ORBS for the day (used by the energy bar + hotkeys)
-  const remaining = Math.max(0, dailyLimit - todayUsage)
+  const remaining = typeof remainingOrbs === 'number' ? remainingOrbs : Math.max(0, dailyLimit - (usedOrbs ?? 0))
   const quotaColor = isVip && goldTheme ? '#F5C518' : remaining === 0 ? '#FF375F' : remaining <= 3 ? '#FFD60A' : (isVip ? '#F5C518' : '#00F5FF')
 
   const launchGame = (game: GameDef) => {
@@ -438,7 +438,7 @@ export function Dashboard() {
                 index={i}
                 disabled={game.disabled || isOffline}
                 statusBadge={game.disabled ? 'Coming Soon' : isOffline ? 'OFFLINE' : undefined}
-                costBadge={game.orbCost === 'ORB' ? '1 ORB' : game.orbCost === 'ARCADE' ? 'ARCADE' : undefined}
+                costBadge={game.orbCost === 'ORB' ? '1 ORB' : 'UNLIMITED // FREE PLAY'}
                 onLaunch={game.orbCost === 'ORB' ? () => setPendingOrbGame(game) : undefined}
               />
             )
