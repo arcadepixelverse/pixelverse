@@ -8,6 +8,8 @@ interface AuthContextType {
   session: Session | null
   loading: boolean
   isAdmin: boolean
+  isOwner: boolean
+  username: string | null
   accessToken: string | null
   todayUsage: number
   usedOrbs: number
@@ -18,6 +20,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<AuthResponse>
   signUp: (email: string, password: string) => Promise<AuthResponse>
   signOut: () => Promise<void>
+  setUsername: (name: string) => void
   refreshUsage: () => Promise<void>
   refreshQuota: () => Promise<void>
   refreshUser: () => Promise<void>
@@ -45,6 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isOwner, setIsOwner] = useState(false)
+  const [username, setUsername] = useState<string | null>(null)
   const [todayUsage, setTodayUsage] = useState<number>(0)
   const [usedOrbs, setUsedOrbs] = useState<number>(0)
   const [remainingOrbs, setRemainingOrbs] = useState<number>(10)
@@ -68,35 +73,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRemainingOrbs(10)
         setTotalPlays(0)
         setIsVip(false)
+        setIsOwner(false)
+        setUsername(null)
         setDailyLimit(10)
         return
       }
       if (res.ok) {
         const data = await res.json()
-        const vip = data.isVip === true
-        const limit = typeof data.dailyLimit === 'number' && data.dailyLimit > 0 ? data.dailyLimit : (vip ? 25 : 10)
-        const used = typeof data.usedOrbs === 'number'
+        const isOwnerAccount =
+          data.isOwner === true ||
+          (data.email && KNOWN_ADMINS.includes(data.email.toLowerCase()))
+        const vip = isOwnerAccount || data.isVip === true
+        const limit = isOwnerAccount
+          ? 999999
+          : (typeof data.dailyLimit === 'number' && data.dailyLimit > 0 ? data.dailyLimit : (vip ? 25 : 10))
+        const used = isOwnerAccount
+          ? 0
+          : (typeof data.usedOrbs === 'number'
           ? data.usedOrbs
           : typeof data.daily_plays === 'number'
           ? data.daily_plays
-          : (typeof data.todayUsage === 'number' ? data.todayUsage : 0)
-        const remaining = typeof data.remainingOrbs === 'number'
+          : (typeof data.todayUsage === 'number' ? data.todayUsage : 0))
+        const remaining = isOwnerAccount
+          ? 999999
+          : (typeof data.remainingOrbs === 'number'
           ? data.remainingOrbs
-          : Math.max(0, limit - used)
+          : Math.max(0, limit - used))
 
+        setIsOwner(isOwnerAccount)
         setIsVip(vip)
         setDailyLimit(limit)
         setUsedOrbs(used)
         setRemainingOrbs(remaining)
 
+        if (typeof data.username === 'string') {
+          setUsername(data.username)
+        } else if (data.username === null) {
+          setUsername(null)
+        }
+
         if (typeof data.todayUsage === 'number') {
-          setTodayUsage(data.todayUsage)
+          setTodayUsage(isOwnerAccount ? 0 : data.todayUsage)
         }
         if (typeof data.total_plays === 'number') {
           setTotalPlays(data.total_plays)
         }
         if (typeof data.isAdmin === 'boolean') {
-          setIsAdmin(data.isAdmin)
+          setIsAdmin(data.isAdmin || isOwnerAccount)
         } else if (data.email) {
           setIsAdmin(KNOWN_ADMINS.includes(data.email.toLowerCase()))
         }
@@ -142,6 +165,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setTodayUsage(0)
         setTotalPlays(0)
         setIsVip(false)
+        setIsOwner(false)
+        setUsername(null)
         setDailyLimit(10)
         setIsAdmin(false)
       }
@@ -174,6 +199,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession(null)
     setUser(null)
     setIsAdmin(false)
+    setIsOwner(false)
+    setUsername(null)
     setTodayUsage(0)
     setUsedOrbs(0)
     setRemainingOrbs(10)
@@ -233,6 +260,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       loading,
       isAdmin,
+      isOwner,
+      username,
       accessToken,
       todayUsage,
       usedOrbs,
@@ -243,13 +272,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut,
+      setUsername,
       refreshUsage,
       refreshQuota: refreshUsage,
       refreshUser: refreshUsage,
       syncPlaySession,
       updateQuota,
     }),
-    [user, session, loading, isAdmin, accessToken, todayUsage, usedOrbs, remainingOrbs, totalPlays, isVip, dailyLimit]
+    [user, session, loading, isAdmin, isOwner, username, accessToken, todayUsage, usedOrbs, remainingOrbs, totalPlays, isVip, dailyLimit]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
+import { isOwnerEmail } from '../lib/owner';
 
 export const PLAY_LIMIT = 10;
 export const VIP_PLAY_LIMIT = 25;
@@ -175,6 +176,34 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
   // Determine game ID from the route path (authoritative), then params/body fallbacks
   const gameId = deriveGameId(req);
   const isPureArcade = PURE_ARCADE_GAME_IDS.has(gameId);
+
+  // ── Supreme Owner Bypass (Unlimited plays, 0 orb cost, issues valid anti-cheat session) ──
+  if (isOwnerEmail(req.user?.email)) {
+    const sessionId = `ps_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    activePlaySessions.set(sessionId, {
+      sessionId,
+      userId,
+      gameId,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + SESSION_TTL_MS,
+      consumed: false,
+    });
+
+    (req as any).playSession = {
+      playSessionId: sessionId,
+      todayUsage: 0,
+      totalPlays: 999999,
+      remainingPlays: 999999,
+      usedOrbs: 0,
+      remainingOrbs: 999999,
+      dailyLimit: 999999,
+      isArcade: isPureArcade,
+      isOwner: true,
+    };
+
+    console.log(`[playGate] Issued Supreme Owner unlimited playSession ${sessionId} for user ${userId} on ${gameId}`);
+    return next();
+  }
 
   return withUserLock(userId, async () => {
     try {

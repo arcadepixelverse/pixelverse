@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { apiFetch } from '../lib/apiClient'
+import { useAuth } from '../context/AuthContext'
 import { LoadingOrb } from './LoadingOrb'
 
 export interface LeaderboardEntry {
+  id?: string
   rank: number
+  display_name?: string
   email_prefix: string
   score: number
   is_vip?: boolean
+  is_owner?: boolean
 }
 
 export type LeaderboardGame =
@@ -31,9 +35,11 @@ const TABS: { id: LeaderboardGame; label: string; icon: string }[] = [
 ]
 
 export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
+  const { isOwner } = useAuth()
   const [activeTab, setActiveTab] = useState<LeaderboardGame>('higher_lower')
   const [scores, setScores] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Fetch only when modal is open and on activeTab change
@@ -71,6 +77,24 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
       isMounted = false
     }
   }, [isOpen, activeTab])
+
+  const handleDeleteScore = async (entryId?: string) => {
+    if (!entryId) return
+    if (!window.confirm('Delete this score permanently from the leaderboard?')) return
+    setDeletingId(entryId)
+    try {
+      const res = await apiFetch(`/api/admin/leaderboard/${entryId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error('Failed to delete score')
+      setScores((prev) => prev.filter((s) => s.id !== entryId))
+    } catch (err) {
+      console.error('[Leaderboard] Delete error:', err)
+      alert('Could not delete score.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   // Close on Escape key + lock background scroll while open
   useEffect(() => {
@@ -205,6 +229,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
                     const isTop1 = entry.rank === 1
                     const isTop2 = entry.rank === 2
                     const isTop3 = entry.rank === 3
+                    const displayName = entry.display_name || entry.email_prefix
 
                     const badgeColor = isTop1
                       ? 'text-amber-400 border-amber-400/40 bg-amber-400/10'
@@ -216,13 +241,15 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
 
                     return (
                       <motion.div
-                        key={`${entry.rank}-${entry.email_prefix}`}
+                        key={`${entry.rank}-${displayName}-${entry.score}`}
                         variants={{
                           hidden: { opacity: 0, y: 10 },
                           visible: { opacity: 1, y: 0 },
                         }}
                         className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
-                          entry.is_vip
+                          entry.is_owner
+                            ? 'bg-gradient-to-r from-red-950/25 via-amber-950/20 to-yellow-950/20 border-amber-400/50 shadow-[0_0_20px_rgba(245,197,24,0.18)]'
+                            : entry.is_vip
                             ? 'bg-amber-400/[0.06] border-amber-400/25 shadow-[0_0_16px_rgba(245,197,24,0.08)]'
                             : isTop1
                             ? 'bg-amber-400/[0.07] border-amber-400/30 shadow-[0_0_20px_rgba(251,191,36,0.12)]'
@@ -236,21 +263,30 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
                         {/* Rank + User */}
                         <div className="flex items-center gap-3">
                           <span
-                            className={`w-7 h-7 rounded-lg border flex items-center justify-center font-mono font-bold text-xs ${badgeColor}`}
+                            className={`w-7 h-7 rounded-lg border flex items-center justify-center font-mono font-bold text-xs ${
+                              entry.is_owner ? 'text-amber-300 border-amber-400/60 bg-amber-400/20' : badgeColor
+                            }`}
                           >
                             {isTop1 ? '🥇' : isTop2 ? '🥈' : isTop3 ? '🥉' : `#${entry.rank}`}
                           </span>
                           <div className="flex flex-col">
-                            <span className="text-sm font-semibold tracking-wide text-white flex items-center gap-1.5">
-                              {entry.email_prefix}
-                              {entry.is_vip && (
+                            <span className="text-sm font-semibold tracking-wide text-white flex items-center gap-1.5 flex-wrap">
+                              {displayName}
+                              {entry.is_owner ? (
+                                <span
+                                  className="text-[8px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-amber-400/60 bg-amber-400/20 text-amber-300 shadow-[0_0_10px_rgba(245,197,24,0.4)]"
+                                  title="Supreme Platform Owner"
+                                >
+                                  👑 SUPREME OWNER
+                                </span>
+                              ) : entry.is_vip ? (
                                 <span
                                   className="text-[8px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-400/15 text-amber-300 shadow-[0_0_8px_rgba(245,197,24,0.3)]"
                                   title="VIP Member"
                                 >
                                   ★ VIP
                                 </span>
-                              )}
+                              ) : null}
                             </span>
                             <span className="text-[10px] font-mono uppercase text-white/30 tracking-wider">
                               Player
@@ -258,18 +294,33 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
                           </div>
                         </div>
 
-                        {/* Score */}
-                        <div className="text-right">
-                          <span
-                            className={`text-base font-black font-mono tracking-tight ${
-                              isTop1 ? 'text-amber-300' : 'text-cyan-400'
-                            }`}
-                          >
-                            {entry.score}
-                          </span>
-                          <span className="block text-[10px] uppercase font-mono text-white/40 tracking-wider">
-                            PTS
-                          </span>
+                        {/* Score + Owner Moderation */}
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <span
+                              className={`text-base font-black font-mono tracking-tight ${
+                                entry.is_owner || isTop1 ? 'text-amber-300' : 'text-cyan-400'
+                              }`}
+                            >
+                              {entry.score}
+                            </span>
+                            <span className="block text-[10px] uppercase font-mono text-white/40 tracking-wider">
+                              PTS
+                            </span>
+                          </div>
+
+                          {/* Supreme Owner 1-click delete */}
+                          {isOwner && entry.id && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteScore(entry.id)}
+                              disabled={deletingId === entry.id}
+                              className="px-2 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 text-[10px] font-mono font-bold tracking-wider transition cursor-pointer disabled:opacity-50"
+                              title="Delete fraudulent score (Owner Moderation)"
+                            >
+                              {deletingId === entry.id ? '...' : '🗑 DEL'}
+                            </button>
+                          )}
                         </div>
                       </motion.div>
                     )

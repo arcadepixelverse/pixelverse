@@ -1,15 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { getMaintenanceMode } from '../lib/gameStatus';
-
-const DEFAULT_ADMIN_EMAILS = [
-  'pritisinghmgs@gmail.com',
-  'arcade.pixelverse@gmail.com',
-];
+import { isOwnerEmail } from '../lib/owner';
 
 /**
  * Universal Maintenance Mode Gate
  * Blocks non-admin gameplay requests with 503 MAINTENANCE_MODE when active.
- * Platform administrators bypass maintenance mode unconditionally.
+ * Platform administrators and Supreme Owner bypass maintenance mode unconditionally.
  */
 export async function maintenanceGate(req: Request, res: Response, next: NextFunction) {
   try {
@@ -18,22 +14,9 @@ export async function maintenanceGate(req: Request, res: Response, next: NextFun
       return next();
     }
 
-    // Check if authenticated user is admin
-    const userEmail = req.user?.email?.trim().toLowerCase();
-    if (userEmail) {
-      const rawAdminEnv = process.env.ADMIN_EMAIL || '';
-      const adminEmailsFromEnv = rawAdminEnv
-        .split(',')
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean);
-
-      const isAuthorized =
-        adminEmailsFromEnv.includes(userEmail) ||
-        DEFAULT_ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(userEmail);
-
-      if (isAuthorized) {
-        return next();
-      }
+    // Check if authenticated user is admin/owner
+    if (isOwnerEmail(req.user?.email)) {
+      return next();
     }
 
     return res.status(503).json({

@@ -168,18 +168,22 @@ const GAMES: GameDef[] = [
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { user, usedOrbs, remainingOrbs, signOut, refreshUsage, isVip, dailyLimit } = useAuth()
+  const { user, usedOrbs, remainingOrbs, signOut, refreshUsage, isVip, isOwner, dailyLimit, username, setUsername } = useAuth()
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
   const [gameStatus, setGameStatus] = useState<Record<string, boolean>>({})
   const [pendingOrbGame, setPendingOrbGame] = useState<GameDef | null>(null)
   const [showVipInfo, setShowVipInfo] = useState(false)
+  const [isEditingUsername, setIsEditingUsername] = useState(false)
+  const [newUsername, setNewUsername] = useState('')
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+  const [isSavingUsername, setIsSavingUsername] = useState(false)
   const [goldTheme, setGoldTheme] = useState<boolean>(() => {
     try { return localStorage.getItem('pv_gold_theme') === '1' } catch { return false }
   })
   const navigate = useNavigate()
 
   const isAdmin = Boolean(
-    user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase())
+    isOwner || (user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase()))
   )
 
   useEffect(() => {
@@ -195,8 +199,12 @@ export function Dashboard() {
   }, [])
 
   // Remaining ORBS for the day (used by the energy bar + hotkeys)
-  const remaining = typeof remainingOrbs === 'number' ? remainingOrbs : Math.max(0, dailyLimit - (usedOrbs ?? 0))
-  const quotaColor = isVip && goldTheme ? '#F5C518' : remaining === 0 ? '#FF375F' : remaining <= 3 ? '#FFD60A' : (isVip ? '#F5C518' : '#00F5FF')
+  const remaining = isOwner
+    ? 999999
+    : (typeof remainingOrbs === 'number' ? remainingOrbs : Math.max(0, dailyLimit - (usedOrbs ?? 0)))
+  const quotaColor = isOwner
+    ? '#F5C518'
+    : (isVip && goldTheme ? '#F5C518' : remaining === 0 ? '#FF375F' : remaining <= 3 ? '#FFD60A' : (isVip ? '#F5C518' : '#00F5FF'))
 
   const launchGame = (game: GameDef) => {
     const isOffline = gameStatus[game.id] === false
@@ -204,6 +212,14 @@ export function Dashboard() {
       playError()
       return
     }
+
+    // Supreme Owner gets 1-click instant launch (bypasses typing confirmation)
+    if (isOwner) {
+      playClick()
+      navigate(game.href)
+      return
+    }
+
     if (game.orbCost === 'ORB') {
       playClick()
       setPendingOrbGame(game)
@@ -211,6 +227,40 @@ export function Dashboard() {
     }
     playClick()
     navigate(game.href)
+  }
+
+  const handleSaveUsername = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    const clean = newUsername.trim()
+    if (!clean) {
+      setUsernameError('Handle cannot be empty')
+      return
+    }
+    if (!/^[a-zA-Z0-9_]{3,18}$/.test(clean)) {
+      setUsernameError('3-18 characters (letters, numbers, underscores only)')
+      return
+    }
+
+    setIsSavingUsername(true)
+    setUsernameError(null)
+    try {
+      const res = await apiFetch('/api/auth/username', {
+        method: 'POST',
+        body: JSON.stringify({ username: clean }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.message || 'Handle is already taken. Try another.')
+      }
+      setUsername(clean)
+      setIsEditingUsername(false)
+      playClick()
+    } catch (err: any) {
+      setUsernameError(err.message || 'Failed to save handle')
+      playError()
+    } finally {
+      setIsSavingUsername(false)
+    }
   }
 
   // Power-user hotkeys — press 1–9 to launch the matching unlocked cabinet
@@ -260,6 +310,17 @@ export function Dashboard() {
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+          {/* Supreme Owner Flex Header Badge */}
+          {isOwner && (
+            <div
+              className="flex items-center gap-1.5 text-xs font-mono font-bold tracking-wider px-3.5 py-1.5 rounded-full border border-amber-400/70 bg-gradient-to-r from-red-600/30 via-amber-500/25 to-yellow-500/20 text-amber-300 shadow-[0_0_20px_rgba(245,197,24,0.45)] select-none"
+              title="Supreme Platform Owner - Infinite Powers"
+            >
+              <span className="text-sm">👑</span>
+              <span>SUPREME OWNER • ∞ ORBS</span>
+            </div>
+          )}
+
           {/* Overlord Admin button (for admin accounts) */}
           {isAdmin && (
             <Link
@@ -272,52 +333,70 @@ export function Dashboard() {
             </Link>
           )}
 
-          {/* Tier badge — FREE with VIP perks popover, or VIP gold */}
-          {isVip ? (
-            <div className="relative flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !goldTheme
-                  setGoldTheme(next)
-                  try { localStorage.setItem('pv_gold_theme', next ? '1' : '0') } catch {}
-                }}
-                title="Toggle Gold Overdrive theme"
-                className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded-full border border-amber-400/50 bg-gradient-to-r from-amber-400/20 to-yellow-500/10 text-amber-300 shadow-[0_0_14px_rgba(245,197,24,0.3)] hover:shadow-[0_0_22px_rgba(245,197,24,0.5)] transition cursor-pointer"
-              >
-                <span>★</span>
-                <span>VIP ACCESS • {dailyLimit} ORBS/DAY</span>
-                <span className="text-amber-400/70">{goldTheme ? '◉' : '○'}</span>
-              </button>
-            </div>
-          ) : (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowVipInfo((v) => !v)}
-                className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded-full border border-white/15 bg-white/[0.04] text-white/60 hover:text-white/90 hover:border-white/30 transition cursor-pointer"
-              >
-                <span>FREE TIER • {dailyLimit} ORBS/DAY</span>
-                <span className="text-white/30">?</span>
-              </button>
-              {showVipInfo && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowVipInfo(false)} />
-                  <div className="absolute right-0 top-full mt-2 z-50 w-64 rounded-xl border border-amber-400/25 bg-[#0a0e14]/95 p-4 shadow-[0_0_30px_rgba(245,197,24,0.15)]">
-                    <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-amber-300 mb-2">★ VIP PERKS</p>
-                    <ul className="text-[11px] font-mono text-white/60 space-y-1.5">
-                      <li>▸ 25 Orbs/Day daily quota</li>
-                      <li>▸ Gold Leaderboard Crown</li>
-                      <li>▸ VIP Instant Launch (no typing)</li>
-                      <li>▸ Gold Overdrive Theme</li>
-                    </ul>
-                    <p className="mt-3 text-[9px] font-mono text-white/30 leading-relaxed">
-                      VIP is granted exclusively by the Platform Owner.
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
+          {/* Custom Username Pill */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewUsername(username || '')
+              setUsernameError(null)
+              setIsEditingUsername(true)
+            }}
+            className="flex items-center gap-1.5 text-xs font-mono font-bold tracking-wider px-3 py-1.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:border-cyan-500/70 transition cursor-pointer shadow-[0_0_12px_rgba(0,245,255,0.15)]"
+            title="Set custom arcade handle (shown on leaderboard)"
+          >
+            <span>👾</span>
+            <span>{username ? `@${username}` : '@SET_USERNAME'}</span>
+            <span className="text-[10px] text-cyan-400/70">✎</span>
+          </button>
+
+          {/* Tier badge — FREE with VIP perks popover, or VIP gold (hidden if Supreme Owner) */}
+          {!isOwner && (
+            isVip ? (
+              <div className="relative flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !goldTheme
+                    setGoldTheme(next)
+                    try { localStorage.setItem('pv_gold_theme', next ? '1' : '0') } catch {}
+                  }}
+                  title="Toggle Gold Overdrive theme"
+                  className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded-full border border-amber-400/50 bg-gradient-to-r from-amber-400/20 to-yellow-500/10 text-amber-300 shadow-[0_0_14px_rgba(245,197,24,0.3)] hover:shadow-[0_0_22px_rgba(245,197,24,0.5)] transition cursor-pointer"
+                >
+                  <span>★</span>
+                  <span>VIP ACCESS • {dailyLimit} ORBS/DAY</span>
+                  <span className="text-amber-400/70">{goldTheme ? '◉' : '○'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowVipInfo((v) => !v)}
+                  className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded-full border border-white/15 bg-white/[0.04] text-white/60 hover:text-white/90 hover:border-white/30 transition cursor-pointer"
+                >
+                  <span>FREE TIER • {dailyLimit} ORBS/DAY</span>
+                  <span className="text-white/30">?</span>
+                </button>
+                {showVipInfo && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowVipInfo(false)} />
+                    <div className="absolute right-0 top-full mt-2 z-50 w-64 rounded-xl border border-amber-400/25 bg-[#0a0e14]/95 p-4 shadow-[0_0_30px_rgba(245,197,24,0.15)]">
+                      <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-amber-300 mb-2">★ VIP PERKS</p>
+                      <ul className="text-[11px] font-mono text-white/60 space-y-1.5">
+                        <li>▸ 25 Orbs/Day daily quota</li>
+                        <li>▸ Gold Leaderboard Crown</li>
+                        <li>▸ VIP Instant Launch (no typing)</li>
+                        <li>▸ Gold Overdrive Theme</li>
+                      </ul>
+                      <p className="mt-3 text-[9px] font-mono text-white/30 leading-relaxed">
+                        VIP is granted exclusively by the Platform Owner.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
           )}
 
           {/* Leaderboard button */}
@@ -331,32 +410,42 @@ export function Dashboard() {
           </button>
 
           {/* Daily Quota Energy Bar */}
-          <div
-            className="hidden sm:flex items-center gap-2 text-[10px] font-mono tracking-wider px-3 py-1.5 rounded-full"
-            style={{
-              background: 'rgba(0, 245, 255, 0.07)',
-              border: `1px solid ${quotaColor}55`,
-            }}
-            title={`${isVip ? 'VIP' : 'FREE'} tier — ${remaining} of ${dailyLimit} orbs left (resets at 00:00 UTC)`}
-          >
-            <span className="uppercase text-white/40">{isVip ? '★ ORBS' : 'ORBS'}</span>
-            <span className="flex items-center gap-[3px]" aria-hidden="true">
-              {Array.from({ length: dailyLimit }).map((_, i) => {
-                const lit = i < remaining
-                return (
-                  <span
-                    key={i}
-                    className="w-1.5 h-3 rounded-[2px] transition-colors"
-                    style={{
-                      background: lit ? quotaColor : 'rgba(255,255,255,0.08)',
-                      boxShadow: lit ? `0 0 6px ${quotaColor}` : 'none',
-                    }}
-                  />
-                )
-              })}
-            </span>
-            <span style={{ color: quotaColor }}>{remaining} / {dailyLimit} ORBS LEFT</span>
-          </div>
+          {isOwner ? (
+            <div
+              className="hidden sm:flex items-center gap-2 text-[10px] font-mono tracking-wider px-3.5 py-1.5 rounded-full border border-amber-400/60 bg-amber-400/10 text-amber-300 shadow-[0_0_16px_rgba(245,197,24,0.35)]"
+              title="Supreme Owner: Unlimited Daily Orbs"
+            >
+              <span>👑 ENERGY:</span>
+              <span className="font-black tracking-widest text-amber-300">∞ UNLIMITED</span>
+            </div>
+          ) : (
+            <div
+              className="hidden sm:flex items-center gap-2 text-[10px] font-mono tracking-wider px-3 py-1.5 rounded-full"
+              style={{
+                background: 'rgba(0, 245, 255, 0.07)',
+                border: `1px solid ${quotaColor}55`,
+              }}
+              title={`${isVip ? 'VIP' : 'FREE'} tier — ${remaining} of ${dailyLimit} orbs left (resets at 00:00 UTC)`}
+            >
+              <span className="uppercase text-white/40">{isVip ? '★ ORBS' : 'ORBS'}</span>
+              <span className="flex items-center gap-[3px]" aria-hidden="true">
+                {Array.from({ length: dailyLimit }).map((_, i) => {
+                  const lit = i < remaining
+                  return (
+                    <span
+                      key={i}
+                      className="w-1.5 h-3 rounded-[2px] transition-colors"
+                      style={{
+                        background: lit ? quotaColor : 'rgba(255,255,255,0.08)',
+                        boxShadow: lit ? `0 0 6px ${quotaColor}` : 'none',
+                      }}
+                    />
+                  )
+                })}
+              </span>
+              <span style={{ color: quotaColor }}>{remaining} / {dailyLimit} ORBS LEFT</span>
+            </div>
+          )}
 
           {/* Sound effects toggle */}
           <SfxToggle />
@@ -472,6 +561,73 @@ export function Dashboard() {
             navigate(g.href!)
           }}
         />
+      )}
+
+      {/* ── Custom Username Modal ── */}
+      {isEditingUsername && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-sm rounded-2xl border border-cyan-500/40 bg-zinc-950 p-6 shadow-[0_0_50px_rgba(0,245,255,0.2)] font-mono text-white">
+            <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">👾</span>
+                <h3 className="text-sm font-black uppercase tracking-wider text-cyan-400">
+                  ARCADE HANDLE // ID
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditingUsername(false)}
+                className="text-zinc-500 hover:text-white text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+              Your custom handle is displayed on public Leaderboards instead of your email.
+            </p>
+
+            <form onSubmit={handleSaveUsername} className="space-y-4">
+              <div>
+                <label className="block text-[10px] text-zinc-500 uppercase tracking-widest font-bold mb-1">
+                  HANDLE (3–18 CHARS, ALPHANUMERIC)
+                </label>
+                <div className="flex items-center rounded-xl bg-zinc-900 border border-zinc-700 focus-within:border-cyan-400 px-3 py-2 text-sm">
+                  <span className="text-cyan-400 font-bold mr-1">@</span>
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="pixel_pilot"
+                    maxLength={18}
+                    autoFocus
+                    className="w-full bg-transparent focus:outline-none text-white font-mono placeholder-zinc-600"
+                  />
+                </div>
+                {usernameError && (
+                  <p className="mt-1 text-xs text-rose-400">{usernameError}</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingUsername(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:text-white transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingUsername}
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black text-xs font-black uppercase tracking-wider transition cursor-pointer disabled:opacity-50 shadow-[0_0_15px_rgba(0,245,255,0.3)]"
+                >
+                  {isSavingUsername ? 'SAVING...' : '[ SAVE HANDLE ]'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* ── Global Leaderboard Modal ── */}

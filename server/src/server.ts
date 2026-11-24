@@ -11,6 +11,7 @@ import { requireAdmin } from './middleware/requireAdmin';
 import { getGameStatus, getMaintenanceMode } from './lib/gameStatus';
 import { rateLimit } from './middleware/rateLimit';
 import { abuseRateLimit } from './middleware/rateLimit';
+import { isOwnerEmail } from './lib/owner';
 
 dotenv.config();
 
@@ -138,7 +139,7 @@ app.get('/api/status', async (_req: Request, res: Response) => {
   }
 });
 
-/** Authenticated User Profile, Daily Usage, Play Count & Admin Flag */
+/** Authenticated User Profile, Daily Usage, Play Count & Supreme Owner Flag */
 app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth' }), requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
@@ -154,7 +155,7 @@ app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth'
         .maybeSingle(),
       supabaseAdmin
         .from('profiles')
-        .select('total_plays, daily_plays, last_played_at, is_banned, is_vip')
+        .select('username, total_plays, daily_plays, last_played_at, is_banned, is_vip')
         .eq('id', userId)
         .maybeSingle(),
     ]);
@@ -166,19 +167,8 @@ app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth'
       console.error('[auth/me] Error querying profiles:', profileRes.error);
     }
 
-    const rawAdminEnv = process.env.ADMIN_EMAIL || '';
-    const adminEmailsFromEnv = rawAdminEnv
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    const DEFAULT_ADMIN_EMAILS = [
-      'pritisinghmgs@gmail.com',
-      'arcade.pixelverse@gmail.com',
-    ];
-    const userEmail = email.trim().toLowerCase();
-    const isAdmin =
-      adminEmailsFromEnv.includes(userEmail) ||
-      DEFAULT_ADMIN_EMAILS.includes(userEmail);
+    const isOwner = isOwnerEmail(email);
+    const isAdmin = isOwner;
 
     // Mirror playGate's UTC calendar-day rollover so the client never sees a
     // stale daily_plays count carried over from a previous UTC day.
@@ -189,29 +179,104 @@ app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth'
       ? (profileRes.data?.daily_plays ?? 0)
       : 0;
 
-    const isVip = profileRes.data?.is_vip === true;
-    const dailyLimit = isVip ? 25 : 10;
-    const usedOrbs = effectiveDailyPlays;
-    const remainingOrbs = Math.max(0, dailyLimit - usedOrbs);
+    const isVip = isOwner || profileRes.data?.is_vip === true;
+    const dailyLimit = isOwner ? 999999 : (isVip ? 25 : 10);
+    const usedOrbs = isOwner ? 0 : effectiveDailyPlays;
+    const remainingOrbs = isOwner ? 999999 : Math.max(0, dailyLimit - usedOrbs);
 
     return res.json({
       id: userId,
       email,
+      username: profileRes.data?.username || null,
+      isOwner,
       isAdmin,
-      todayUsage: dailyRes.data?.ai_calls_count || 0,
+      todayUsage: isOwner ? 0 : (dailyRes.data?.ai_calls_count || 0),
       usedOrbs,
       dailyLimit,
       remainingOrbs,
       isVip,
       daily_plays: effectiveDailyPlays,
       total_plays: profileRes.data?.total_plays ?? 0,
-      is_banned: profileRes.data?.is_banned ?? false,
+      is_banned: isOwner ? false : (profileRes.data?.is_banned ?? false),
     });
   } catch (err: any) {
     console.error('[auth/me] Unexpected error:', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
+
+/** Update custom username */
+app.post(
+  '/api/auth/username',
+  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'username' }),
+  requireAuth,
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const rawUsername = req.body?.username;
+
+      if (!rawUsername || typeof rawUsername !== 'string') {
+        return res.status(400).json({
+          error: 'INVALID_USERNAME',
+          message: 'Username is required and must be a string.',
+        });
+      }
+
+      const cleanUsername = rawUsername.trim();
+
+      // Validate: 3 to 18 characters, alphanumeric + underscore
+      if (!/^[a-zA-Z0-9_]{3,18}$/.test(cleanUsername)) {
+        return res.status(400).json({
+          error: 'INVALID_USERNAME',
+          message: 'Username must be 3-18 characters and contain only letters, numbers, and underscores.',
+        });
+      }
+
+      // Check case-insensitive uniqueness across profiles (excluding current user)
+      const { data: existingUser, error: queryErr } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .ilike('username', cleanUsername)
+        .neq('id', userId)
+        .maybeSingle();
+
+      if (queryErr) {
+        console.warn('[auth/username] Error checking username uniqueness:', queryErr.message);
+      }
+
+      if (existingUser) {
+        return res.status(409).json({
+          error: 'USERNAME_TAKEN',
+          message: 'Username is already taken. Please choose another.',
+        });
+      }
+
+      // Upsert username into profiles
+      const { error: updateErr } = await supabaseAdmin
+        .from('profiles')
+        .upsert(
+          { id: userId, username: cleanUsername },
+          { onConflict: 'id' }
+        );
+
+      if (updateErr) {
+        console.error('[auth/username] Error updating username:', updateErr);
+        return res.status(500).json({
+          error: 'FAILED_TO_UPDATE',
+          message: 'Failed to update username. Please try again.',
+        });
+      }
+
+      return res.json({
+        success: true,
+        username: cleanUsername,
+      });
+    } catch (err: any) {
+      console.error('[auth/username] Unexpected error:', err);
+      return res.status(500).json({ error: 'internal_error' });
+    }
+  }
+);
 
 /** Quota gate test route */
 app.post('/api/test-quota', requireAuth, quotaGate, (_req: Request, res: Response) => {

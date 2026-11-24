@@ -4,1874 +4,941 @@ import { apiFetch, getApiErrorMessage } from '../lib/apiClient'
 import { useAuth } from '../context/AuthContext'
 import { playClick } from '../lib/soundEngine'
 
-// ── Interfaces ─────────────────────────────────────────────────────────────────
+const OWNER_EMAILS = [
+  'pritisinghmgs@gmail.com',
+  'arcade.pixelverse@gmail.com',
+  (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase(),
+].filter(Boolean)
 
-export interface GameStatusMap {
-  [gameId: string]: boolean
+function isOwner(email?: string | null): boolean {
+  if (!email) return false
+  return OWNER_EMAILS.includes(email.trim().toLowerCase())
 }
 
-export interface AdminStats {
-  totalUsers: number
-  totalAiCallsToday: number
-  totalPlaysToday: number
-  maintenance_mode: boolean
-  gameStatus: GameStatusMap
-}
-
-export interface AdminUser {
-  id: string
-  email: string
-  ai_calls_count: number
-  daily_plays?: number
-  total_plays?: number
-  is_banned?: boolean
-  is_vip?: boolean
-  last_played_at?: string | null
-  created_at?: string
-  last_sign_in_at?: string
-}
-
-export interface GameDefinition {
-  id: string
-  name: string
-  codename: string
-  desc: string
-  category: string
-  icon: string
-}
-
-export interface DiagnosticsData {
-  nodeVersion: string
-  platform: string
-  arch: string
-  processUptimeSeconds: number
-  memoryMb: {
-    rss: number
-    heapUsed: number
-    heapTotal: number
-    external: number
-  }
-  eventLoopLagMs: number
-  database: {
-    status: string
-    latencyMs: number
-  }
-  errorCounters: {
-    error4xx: number
-    error5xx: number
-    rateLimit429: number
-  }
-  timestamp: string
-}
-
-export interface ApiReportData {
-  keys: {
-    [keyName: string]: {
-      status: 'CONFIGURED' | 'MISSING'
-      masked: string
-    }
-  }
-  telemetry: {
-    serverUptimeSeconds: number
-    totalRequests: number
-    endpointCounts: Record<string, number>
-    aiCallCount: number
-    rateLimit429Count: number
-    error4xxCount: number
-    error5xxCount: number
-    averageLatencyMs: number
-  }
-  configuredLimits: {
-    dailyUserPlayLimit: number
-    dailyAiCallsLimit: number
-    playSessionTtlMinutes: number
-  }
-  aiFailover?: {
-    providers: Array<{
-      name: string
-      tier: string
-      env: string
-      key: { status: 'CONFIGURED' | 'MISSING'; masked: string }
-      status: 'CONFIGURED' | 'MISSING'
-      calls: number
-      errors: number
-      rateLimit429s: number
-    }>
-    thresholds: {
-      dailyAiCallsPerUser: number
-      dailyPlaysPerUser: number
-      rateLimits: string
-    }
-  }
-  gamesContent?: {
-    gameStatus: GameStatusMap
-    hl_questions: { total: number; unused: number }
-    turing_scenarios: { total: number }
-    survival_scenarios: { total: number }
-    leaderboards: Record<string, number>
-  }
-  traffic?: {
-    totalRequests: number
-    endpointCounts: Record<string, number>
-    aiCallCount: number
-    rateLimit429Count: number
-    error4xxCount: number
-    error5xxCount: number
-    averageLatencyMs: number
-    cacheControl: string
-    cacheControlVerified: boolean
-  }
-}
-
-export interface LivePingResult {
-  provider: string
-  status: 'ONLINE' | 'DEGRADED' | 'FAILED'
-  statusCode: number
-  latencyMs: number
-  message: string
-}
-
-export interface AuditLogEntry {
-  id?: string
-  admin_email: string
-  action: string
-  target: string
-  details?: any
-  created_at: string
-}
-
-export interface ClientDiagnostics {
-  host: string
-  buildMode: string
-  jwtExpiresIn: string
-  storageKb: number
-  onlineStatus: boolean
-  connectionType: string
-  rttMs: number
-  fps: number
-  domNodes: number
-  viewport: string
-  fontsLoaded: string
-  dvhSupported: boolean
-}
-
-// ── Canonical Game Catalog ─────────────────────────────────────────────────────
-
-export const GAME_DEFINITIONS: GameDefinition[] = [
-  {
-    id: 'higher_lower',
-    name: 'Higher or Lower',
-    codename: 'MOD_HL_COMPARE',
-    desc: 'Real-world quantitative metric comparison trivia engine',
-    category: 'TRIVIA_CORE',
-    icon: '📈',
-  },
-  {
-    id: 'jailbreak',
-    name: 'The Jailbreak',
-    codename: 'MOD_SEC_FIREWALL',
-    desc: 'Adversarial prompt injection & secret passkey extraction test',
-    category: 'CYBER_SEC',
-    icon: '🔓',
-  },
-  {
-    id: 'mind_reader',
-    name: 'Mind Reader',
-    codename: 'MOD_NEURAL_ORACLE',
-    desc: 'Binary search telepathic question & number deduction system',
-    category: 'COGNITIVE',
-    icon: '🧠',
-  },
-  {
-    id: 'turing_test',
-    name: 'The Turing Test',
-    codename: 'MOD_TURING_INTERROG',
-    desc: 'Synthetic AI vs organic carbon discrimination engine',
-    category: 'EVALUATION',
-    icon: '🤖',
-  },
-  {
-    id: 'survival',
-    name: 'Survival Protocol',
-    codename: 'MOD_CRISIS_SURVIVAL',
-    desc: 'High-stakes emergency scenario survival evaluation engine',
-    category: 'SIMULATION',
-    icon: '☣️',
-  },
-  {
-    id: 'wingman',
-    name: 'The Wingman',
-    codename: 'MOD_WINGMAN_SOCIAL',
-    desc: 'Algorithmic conversational wit & social icebreaker generator',
-    category: 'SOCIAL_AI',
-    icon: '💬',
-  },
-  {
-    id: 'cyber_sprint',
-    name: 'Cyber Sprint',
-    codename: 'MOD_CYBER_SPRINT',
-    desc: 'Real-time terminal velocity typing arcade (Zero-API)',
-    category: 'REACTION_CORE',
-    icon: '⌨️',
-  },
-  {
-    id: 'signal_sync',
-    name: 'Signal Sync',
-    codename: 'MOD_SIGNAL_SYNC',
-    desc: 'Oscilloscope harmonic resonance rhythm calibration (Zero-API)',
-    category: 'REACTION_CORE',
-    icon: '⚡',
-  },
-  {
-    id: 'overclock',
-    name: 'Overclock',
-    codename: 'MOD_CPU_OVERCLOCK',
-    desc: 'Thermal runaway limit push & quantum core data banking (Zero-API)',
-    category: 'RISK_SYSTEM',
-    icon: '🔥',
-  },
-  {
-    id: 'vault',
-    name: 'The Vault',
-    codename: 'MOD_VAULT_RESERVE',
-    desc: 'Classified sanctuary & emotional intelligence conversational core',
-    category: 'RESTRICTED',
-    icon: '🔒',
-  },
+const ALL_GAMES = [
+  { id: 'jailbreak', name: 'The Jailbreak', codename: 'AI_JAILBREAK', type: 'AI' },
+  { id: 'higher_lower', name: 'Higher or Lower', codename: 'NUM_INTUITION', type: 'AI' },
+  { id: 'mind_reader', name: 'Mind Reader', codename: 'BINARY_SEARCH', type: 'AI' },
+  { id: 'turing_test', name: 'The Turing Test', codename: 'HUMAN_VS_AI', type: 'AI' },
+  { id: 'survival', name: 'Survival Protocol', codename: 'SURVIVAL_SIM', type: 'AI' },
+  { id: 'vault', name: 'The Vault', codename: 'AI_SANCTUARY', type: 'ARCADE' },
+  { id: 'wingman', name: 'The Wingman', codename: 'WINGMAN_BOT', type: 'AI' },
+  { id: 'cyber_sprint', name: 'Cyber Sprint', codename: 'TYPING_REFLEX', type: 'ARCADE' },
+  { id: 'signal_sync', name: 'Signal Sync', codename: 'RHYTHM_FREQ', type: 'ARCADE' },
+  { id: 'overclock', name: 'Overclock', codename: 'CPU_MELTDOWN', type: 'ARCADE' },
 ]
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+export default function AdminConsole() {
+  const { user } = useAuth()
+  const [stats, setStats] = useState<{
+    totalUsers: number
+    totalAiCallsToday: number
+    totalPlaysToday: number
+    maintenance_mode: boolean
+    gameStatus: Record<string, boolean>
+  } | null>(null)
 
-export function AdminConsole() {
-  const { user, session } = useAuth()
+  const [users, setUsers] = useState<any[]>([])
+  const [diagnostics, setDiagnostics] = useState<any>(null)
+  const [apiReport, setApiReport] = useState<any>(null)
+  const [livePing, setLivePing] = useState<any[] | null>(null)
+  const [auditLogs, setAuditLogs] = useState<any[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isPinging, setIsPinging] = useState(false)
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [bannerMessage, setBannerMessage] = useState<{ text: string; isError?: boolean } | null>(null)
 
-  // Core Data
-  const [stats, setStats] = useState<AdminStats | null>(null)
-  const [users, setUsers] = useState<AdminUser[]>([])
-  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
-  const [diagnostics, setDiagnostics] = useState<DiagnosticsData | null>(null)
-  const [apiReport, setApiReport] = useState<ApiReportData | null>(null)
-  const [livePings, setLivePings] = useState<LivePingResult[] | null>(null)
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
-  const [clientDiag, setClientDiag] = useState<ClientDiagnostics | null>(null)
-
-  // Status & Loaders
-  const [loading, setLoading] = useState<boolean>(true)
-  const [togglingGame, setTogglingGame] = useState<string | null>(null)
-  const [actionLoading, setActionLoading] = useState<boolean>(false)
-  const [pingingServices, setPingingServices] = useState<boolean>(false)
-  const [runningMasterScan, setRunningMasterScan] = useState<boolean>(false)
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null)
-
-  // Filters & Dialogs
-  const [userSearch, setUserSearch] = useState<string>('')
-  const [userFilter, setUserFilter] = useState<'all' | 'banned' | 'active'>('all')
-  const [auditFilter, setAuditFilter] = useState<string>('ALL')
-  const [auditSearch, setAuditSearch] = useState<string>('')
-  const [maintenanceConfirmOpen, setMaintenanceConfirmOpen] = useState<boolean>(false)
-  const [bulkKillConfirmOpen, setBulkKillConfirmOpen] = useState<boolean>(false)
-  const [currentTime, setCurrentTime] = useState<string>(new Date().toISOString())
-
-  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
-    setToast({ text, type })
-    setTimeout(() => setToast(null), 4000)
+  const showBanner = (text: string, isError = false) => {
+    setBannerMessage({ text, isError })
+    setTimeout(() => setBannerMessage(null), 4000)
   }
 
-  // Live clock
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date().toISOString())
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  // Measure Client Diagnostics (FPS, Storage, DOM, Network, Viewport)
-  const runClientDiagnostics = useCallback(async (): Promise<ClientDiagnostics> => {
-    // 1. Storage Footprint
-    let storageBytes = 0
+  const loadAllData = useCallback(async () => {
+    setIsRefreshing(true)
     try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key) {
-          storageBytes += (key.length + (localStorage.getItem(key) || '').length) * 2
-        }
-      }
-    } catch {}
-
-    // 2. JWT Expiry
-    let jwtExpiresIn = 'N/A'
-    if (session?.expires_at) {
-      const diffSec = session.expires_at - Math.floor(Date.now() / 1000)
-      if (diffSec > 0) {
-        const m = Math.floor(diffSec / 60)
-        const s = diffSec % 60
-        jwtExpiresIn = `${m}m ${s}s`
-      } else {
-        jwtExpiresIn = 'EXPIRED'
-      }
-    }
-
-    // 3. Measure RTT Ping to server
-    const startPing = performance.now()
-    try {
-      await apiFetch('/api/status', { method: 'GET' })
-    } catch {}
-    const rttMs = Math.round(performance.now() - startPing)
-
-    // 4. Measure Instantaneous FPS over 30 frames
-    const fps = await new Promise<number>((resolve) => {
-      let frames = 0
-      const startTime = performance.now()
-      function checkFrame() {
-        frames++
-        if (frames < 30) {
-          requestAnimationFrame(checkFrame)
-        } else {
-          const elapsed = performance.now() - startTime
-          const measured = Math.min(60, Math.round((frames / elapsed) * 1000))
-          resolve(measured || 60)
-        }
-      }
-      requestAnimationFrame(checkFrame)
-    })
-
-    const diag: ClientDiagnostics = {
-      host: window.location.host,
-      buildMode: (import.meta.env.MODE || 'production').toUpperCase(),
-      jwtExpiresIn,
-      storageKb: Math.round(storageBytes / 1024),
-      onlineStatus: navigator.onLine,
-      connectionType: (navigator as any).connection?.effectiveType?.toUpperCase() || 'BROADBAND',
-      rttMs,
-      fps,
-      domNodes: document.querySelectorAll('*').length,
-      viewport: `${window.innerWidth}px × ${window.innerHeight}px`,
-      fontsLoaded: (document.fonts as any)?.status?.toUpperCase() || 'READY',
-      dvhSupported: CSS.supports('height', '100dvh'),
-    }
-
-    setClientDiag(diag)
-    return diag
-  }, [session])
-
-  // Sync Core Admin Data
-  const syncAllData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [statsRes, usersRes, auditRes, diagRes, reportRes] = await Promise.all([
+      const [statsRes, usersRes, diagRes, reportRes, logsRes] = await Promise.allSettled([
         apiFetch('/api/admin/stats'),
         apiFetch('/api/admin/users'),
-        apiFetch('/api/admin/audit-logs'),
         apiFetch('/api/admin/diagnostics'),
         apiFetch('/api/admin/api-report'),
+        apiFetch('/api/admin/audit-logs'),
       ])
 
-      if (statsRes.ok) {
-        const sData = await statsRes.json()
-        setStats(sData)
+      if (statsRes.status === 'fulfilled' && statsRes.value.ok) {
+        setStats(await statsRes.value.json())
       }
-      if (usersRes.ok) {
-        const uData = await usersRes.json()
-        setUsers(Array.isArray(uData) ? uData : [])
+      if (usersRes.status === 'fulfilled' && usersRes.value.ok) {
+        setUsers(await usersRes.value.json())
       }
-      if (auditRes.ok) {
-        const aData = await auditRes.json()
-        setAuditLogs(Array.isArray(aData) ? aData : [])
+      if (diagRes.status === 'fulfilled' && diagRes.value.ok) {
+        setDiagnostics(await diagRes.value.json())
       }
-      if (diagRes.ok) {
-        const dData = await diagRes.json()
-        setDiagnostics(dData)
+      if (reportRes.status === 'fulfilled' && reportRes.value.ok) {
+        setApiReport(await reportRes.value.json())
       }
-      if (reportRes.ok) {
-        const rData = await reportRes.json()
-        setApiReport(rData)
+      if (logsRes.status === 'fulfilled' && logsRes.value.ok) {
+        setAuditLogs(await logsRes.value.json())
       }
-
-      runClientDiagnostics().catch(() => {})
     } catch (err: any) {
-      console.error('[AdminConsole] Sync error:', err)
-      showToast(err?.message || 'Failed to sync with Overlord server', 'error')
+      console.error('[AdminConsole] Error loading data:', err)
+      showBanner('Failed to refresh data: ' + (err.message || 'Network error'), true)
     } finally {
-      setLoading(false)
+      setIsLoading(false)
+      setIsRefreshing(false)
     }
-  }, [runClientDiagnostics])
+  }, [])
 
   useEffect(() => {
-    syncAllData()
-  }, [syncAllData])
+    loadAllData()
+  }, [loadAllData])
 
-  // Toggle Maintenance Mode
-  const handleToggleMaintenance = async () => {
-    if (!stats || actionLoading) return
-    setActionLoading(true)
-    const nextStatus = !stats.maintenance_mode
-
+  // ── Maintenance Toggle ──
+  const toggleMaintenance = async (nextState: boolean) => {
+    playClick()
+    setActionLoading((prev) => ({ ...prev, maintenance: true }))
     try {
       const res = await apiFetch('/api/admin/maintenance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: nextStatus }),
+        body: JSON.stringify({ enabled: nextState }),
       })
-
-      if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Failed to update maintenance state'))
-      }
-
-      const data = await res.json()
-      setStats((prev) => (prev ? { ...prev, maintenance_mode: data.maintenance_mode } : prev))
-      showToast(
-        data.maintenance_mode
-          ? '⚠ MAINTENANCE MODE ACTIVATED: Non-admin traffic locked out.'
-          : '✓ MAINTENANCE MODE CLEARED: Public arcade traffic restored.',
-        data.maintenance_mode ? 'info' : 'success'
-      )
-      setMaintenanceConfirmOpen(false)
-      syncAllData()
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
+      setStats((prev) => prev ? { ...prev, maintenance_mode: nextState } : prev)
+      showBanner(`Maintenance mode turned ${nextState ? 'ON' : 'OFF'}`)
+      loadAllData()
     } catch (err: any) {
-      showToast(err?.message || 'Maintenance toggle failed', 'error')
+      showBanner(err.message || 'Failed to toggle maintenance', true)
     } finally {
-      setActionLoading(false)
+      setActionLoading((prev) => ({ ...prev, maintenance: false }))
     }
   }
 
-  // Toggle Single Game Kill Switch
-  const handleToggleGame = async (gameId: string, currentStatus: boolean) => {
-    if (togglingGame) return
-    setTogglingGame(gameId)
+  // ── Single Game Toggle ──
+  const toggleGame = async (gameId: string, currentStatus: boolean) => {
+    playClick()
     const nextStatus = !currentStatus
-
-    // Optimistic UI update
-    setStats((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        gameStatus: {
-          ...prev.gameStatus,
-          [gameId]: nextStatus,
-        },
-      }
-    })
-
+    setActionLoading((prev) => ({ ...prev, [gameId]: true }))
     try {
       const res = await apiFetch('/api/admin/games/toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameId, status: nextStatus }),
       })
-
-      if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, `Failed to toggle ${gameId}`))
-      }
-
-      const data = await res.json()
-      if (data.gameStatus) {
-        setStats((prev) => (prev ? { ...prev, gameStatus: data.gameStatus } : prev))
-      }
-      showToast(
-        `Module [${gameId.toUpperCase()}] switched to ${nextStatus ? 'ONLINE' : 'OFFLINE'}`,
-        nextStatus ? 'success' : 'info'
-      )
-    } catch (err: any) {
-      console.error('[AdminConsole] Toggle failed:', err)
-      // Rollback
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
       setStats((prev) => {
         if (!prev) return prev
         return {
           ...prev,
-          gameStatus: {
-            ...prev.gameStatus,
-            [gameId]: currentStatus,
-          },
+          gameStatus: { ...prev.gameStatus, [gameId]: nextStatus },
         }
       })
-      showToast(err?.message || `Failed to toggle ${gameId}`, 'error')
+      showBanner(`Game [${gameId}] turned ${nextStatus ? 'ONLINE' : 'OFFLINE'}`)
+    } catch (err: any) {
+      showBanner(err.message || 'Failed to toggle game', true)
     } finally {
-      setTogglingGame(null)
+      setActionLoading((prev) => ({ ...prev, [gameId]: false }))
     }
   }
 
-  // Emergency Bulk Toggle Games
-  const handleBulkToggleGames = async (status: boolean) => {
-    if (actionLoading) return
-    setActionLoading(true)
-
+  // ── Bulk Game Toggle ──
+  const bulkToggleGames = async (status: boolean) => {
+    playClick()
+    setActionLoading((prev) => ({ ...prev, bulk: true }))
     try {
       const res = await apiFetch('/api/admin/games/bulk-toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
-
-      if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Bulk toggle failed'))
-      }
-
-      const data = await res.json()
-      if (data.gameStatus) {
-        setStats((prev) => (prev ? { ...prev, gameStatus: data.gameStatus } : prev))
-      }
-      showToast(
-        status ? '✓ ALL 10 ARCADE MODULES RESTORED ONLINE' : '⚠ EMERGENCY: ALL 10 ARCADE MODULES KILLED',
-        status ? 'success' : 'error'
-      )
-      setBulkKillConfirmOpen(false)
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
+      const updatedMap: Record<string, boolean> = {}
+      ALL_GAMES.forEach((g) => { updatedMap[g.id] = status })
+      setStats((prev) => prev ? { ...prev, gameStatus: updatedMap } : prev)
+      showBanner(`All 10 games switched ${status ? 'ONLINE' : 'OFFLINE'}`)
+      loadAllData()
     } catch (err: any) {
-      showToast(err?.message || 'Emergency command failed', 'error')
+      showBanner(err.message || 'Failed to bulk toggle games', true)
     } finally {
-      setActionLoading(false)
+      setActionLoading((prev) => ({ ...prev, bulk: false }))
     }
   }
 
-  // Escape key closes confirm modals + lock background scroll while open
-  useEffect(() => {
-    const anyModalOpen = maintenanceConfirmOpen || bulkKillConfirmOpen
-    if (!anyModalOpen) return
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setMaintenanceConfirmOpen(false)
-        setBulkKillConfirmOpen(false)
-      }
+  // ── User Management ──
+  const toggleVip = async (userId: string, currentVip: boolean) => {
+    playClick()
+    const nextVip = !currentVip
+    setActionLoading((prev) => ({ ...prev, [`vip_${userId}`]: true }))
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/vip`, {
+        method: 'POST',
+        body: JSON.stringify({ isVip: nextVip }),
+      })
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, is_vip: nextVip } : u))
+      )
+      showBanner(`VIP status ${nextVip ? 'GRANTED' : 'REVOKED'}`)
+    } catch (err: any) {
+      showBanner(err.message || 'Failed to update VIP', true)
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [`vip_${userId}`]: false }))
     }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.body.style.overflow = prevOverflow
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [maintenanceConfirmOpen, bulkKillConfirmOpen])
+  }
 
-  // Reset User Daily Quota
-  const handleResetQuota = async (userId: string, email: string) => {
-    if (actionLoading) return
-    setActionLoading(true)
+  const toggleBan = async (userId: string, currentBanned: boolean) => {
+    playClick()
+    const action = currentBanned ? 'unban' : 'ban'
+    setActionLoading((prev) => ({ ...prev, [`ban_${userId}`]: true }))
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/${action}`, {
+        method: 'POST',
+      })
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, is_banned: !currentBanned } : u))
+      )
+      showBanner(`User ${currentBanned ? 'UNBANNED' : 'BANNED'}`)
+    } catch (err: any) {
+      showBanner(err.message || 'Failed to update ban status', true)
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [`ban_${userId}`]: false }))
+    }
+  }
+
+  const resetQuota = async (userId: string) => {
+    playClick()
+    setActionLoading((prev) => ({ ...prev, [`quota_${userId}`]: true }))
     try {
       const res = await apiFetch(`/api/admin/users/${userId}/reset-quota`, {
         method: 'POST',
       })
-      if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Failed to reset quota'))
-      }
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, daily_plays: 0, ai_calls_count: 0 } : u))
       )
-      if (selectedUser?.id === userId) {
-        setSelectedUser((prev) => (prev ? { ...prev, daily_plays: 0, ai_calls_count: 0 } : prev))
-      }
-      showToast(`Quota cleared for <${email}> (daily_plays: 0)`, 'success')
-      syncAllData()
+      showBanner('User daily plays and quota reset to 0')
     } catch (err: any) {
-      showToast(err?.message || 'Quota reset failed', 'error')
+      showBanner(err.message || 'Failed to reset quota', true)
     } finally {
-      setActionLoading(false)
+      setActionLoading((prev) => ({ ...prev, [`quota_${userId}`]: false }))
     }
   }
 
-  // Force Revoke User Session (Logout)
-  // Toggle VIP status
-  const handleToggleVip = async (userId: string, currentVip: boolean) => {
-    setActionLoading(true)
-    try {
-      const res = await apiFetch(`/api/admin/users/${userId}/vip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isVip: !currentVip }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'VIP toggle failed')
-      const nextVip = data.is_vip === true
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_vip: nextVip } : u)))
-      setSelectedUser((prev) => (prev?.id === userId ? { ...prev, is_vip: nextVip } : prev))
-      showToast(nextVip ? 'VIP access granted' : 'VIP access revoked', 'success')
-    } catch (err: any) {
-      showToast(err?.message || 'VIP toggle failed', 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  const handleRevokeSession = async (userId: string, email: string) => {
-    if (actionLoading) return
-    setActionLoading(true)
-    try {
-      const res = await apiFetch(`/api/admin/users/${userId}/revoke-session`, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        throw new Error(await getApiErrorMessage(res, 'Failed to revoke session'))
-      }
-      showToast(`Session invalidated for <${email}>. Active tokens cancelled.`, 'info')
-    } catch (err: any) {
-      showToast(err?.message || 'Session revocation failed', 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  // Ban User
-  const handleBanUser = async (userId: string) => {
-    if (actionLoading) return
-    setActionLoading(true)
-    try {
-      const res = await apiFetch(`/api/admin/users/${userId}/ban`, { method: 'POST' })
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to ban user'))
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_banned: true } : u)))
-      setSelectedUser((prev) => (prev?.id === userId ? { ...prev, is_banned: true } : prev))
-      showToast('Account suspended and blacklisted.', 'success')
-      syncAllData()
-    } catch (err: any) {
-      showToast(err?.message || 'Ban failed', 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  // Unban User
-  const handleUnbanUser = async (userId: string) => {
-    if (actionLoading) return
-    setActionLoading(true)
-    try {
-      const res = await apiFetch(`/api/admin/users/${userId}/unban`, { method: 'POST' })
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to unban user'))
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_banned: false } : u)))
-      setSelectedUser((prev) => (prev?.id === userId ? { ...prev, is_banned: false } : prev))
-      showToast('Account unbanned and restored.', 'success')
-      syncAllData()
-    } catch (err: any) {
-      showToast(err?.message || 'Unban failed', 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  // Delete User
-  const handleDeleteUser = async (userId: string, email: string) => {
-    if (actionLoading) return
-    const confirmed = window.confirm(
-      `PERMANENT PURGE WARNING: Delete user <${email}> from Supabase Auth & Profiles? This cannot be undone.`
-    )
-    if (!confirmed) return
-
-    setActionLoading(true)
-    try {
-      const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Failed to delete user'))
-      setUsers((prev) => prev.filter((u) => u.id !== userId))
-      setSelectedUser(null)
-      showToast(`User <${email}> purged from system.`, 'success')
-      syncAllData()
-    } catch (err: any) {
-      showToast(err?.message || 'Delete failed', 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
-  // Run Master Diagnostics Scan
-  const handleRunMasterScan = async () => {
-    setRunningMasterScan(true)
-    try {
-      const [diagRes, reportRes] = await Promise.all([
-        apiFetch('/api/admin/diagnostics'),
-        apiFetch('/api/admin/api-report'),
-        runClientDiagnostics(),
-      ])
-
-      if (diagRes.ok) setDiagnostics(await diagRes.json())
-      if (reportRes.ok) setApiReport(await reportRes.json())
-      showToast('✓ Master diagnostic suite completed successfully.', 'success')
-    } catch (err: any) {
-      showToast(err?.message || 'Diagnostics scan failed', 'error')
-    } finally {
-      setRunningMasterScan(false)
-    }
-  }
-
-  // Live Ping External API Keys
-  const handleLivePingKeys = async () => {
-    setPingingServices(true)
+  // ── Ping API Keys ──
+  const pingApiKeys = async () => {
+    playClick()
+    setIsPinging(true)
     try {
       const res = await apiFetch('/api/admin/live-ping', { method: 'POST' })
-      if (!res.ok) throw new Error(await getApiErrorMessage(res, 'Live ping failed'))
+      if (!res.ok) throw new Error(await getApiErrorMessage(res))
       const data = await res.json()
-      setLivePings(data.results || [])
-      showToast(`Ping complete: ${data.results?.length || 0} external endpoints evaluated.`, 'success')
-      syncAllData()
+      setLivePing(data.results || [])
+      showBanner('API connectivity ping complete')
     } catch (err: any) {
-      showToast(err?.message || 'Live ping failed', 'error')
+      showBanner(err.message || 'Ping failed', true)
     } finally {
-      setPingingServices(false)
+      setIsPinging(false)
     }
   }
 
-  // Filtered Users
+  const onlineGamesCount = ALL_GAMES.filter(
+    (g) => stats?.gameStatus?.[g.id] !== false
+  ).length
+
   const filteredUsers = users.filter((u) => {
-    const matchesSearch =
-      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
-      u.id.toLowerCase().includes(userSearch.toLowerCase())
-    if (!matchesSearch) return false
-    if (userFilter === 'banned') return u.is_banned === true
-    if (userFilter === 'active') return !u.is_banned
-    return true
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase()
+    return (
+      u.email?.toLowerCase().includes(q) ||
+      u.username?.toLowerCase().includes(q) ||
+      u.id?.toLowerCase().includes(q)
+    )
   })
 
-  // Guaranteed immediate user list (so table is never blank even if users is loading/empty)
-  const displayUsers: AdminUser[] =
-    filteredUsers.length > 0
-      ? filteredUsers
-      : users.length === 0
-      ? [
-          {
-            id: user?.id || 'admin-root-session',
-            email: user?.email || 'admin@pixelverse.io',
-            ai_calls_count: 0,
-            daily_plays: 0,
-            total_plays: 0,
-            is_banned: false,
-            is_vip: false,
-            created_at: new Date().toISOString(),
-          },
-        ]
-      : []
-
-  // Filtered Audit Logs
-  const filteredLogs = auditLogs.filter((log) => {
-    const matchesAction = auditFilter === 'ALL' || log.action.toUpperCase().includes(auditFilter)
-    const matchesSearch =
-      !auditSearch ||
-      log.action.toLowerCase().includes(auditSearch.toLowerCase()) ||
-      log.target.toLowerCase().includes(auditSearch.toLowerCase()) ||
-      log.admin_email.toLowerCase().includes(auditSearch.toLowerCase())
-    return matchesAction && matchesSearch
-  })
-
-  // Total active games count
-  const activeGamesCount = stats?.gameStatus
-    ? Object.values(stats.gameStatus).filter(Boolean).length
-    : 10
-
-  const isMaintenanceActive = stats?.maintenance_mode ?? false
+  const formatUptime = (seconds: number) => {
+    if (!seconds || seconds < 0) return '0s'
+    const d = Math.floor(seconds / 86400)
+    const h = Math.floor((seconds % 86400) / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    const s = Math.floor(seconds % 60)
+    if (d > 0) return `${d}d ${h}h ${m}m`
+    if (h > 0) return `${h}h ${m}m ${s}s`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+  }
 
   return (
-    <div id="top" className="min-h-screen bg-[#070709] text-white font-mono selection:bg-cyan-500/30 selection:text-cyan-200 opacity-100 visible scroll-smooth">
-      {/* ── Top Hacker Status Banner ────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 bg-[#070709]/95 backdrop-blur-md border-b border-white/10 px-4 py-3 sm:px-6 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
-        <div className="flex items-center gap-3 opacity-100 visible">
-          <div className="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_12px_#00F5FF]" />
-          <div className="opacity-100 visible">
-            <div className="flex items-center gap-2 opacity-100 visible">
-              <span className="text-xs uppercase tracking-[0.25em] text-cyan-400 font-black">
-                OVERLORD_CONSOLE // OP_SYSTEM
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-bold">
-                v2.4 SECURE
-              </span>
-            </div>
-            <div className="text-[10px] text-white/40 flex items-center gap-2 opacity-100 visible">
-              <span>ADMIN: <strong className="text-white/80">{user?.email || 'AUTHENTICATED'}</strong></span>
-              <span>•</span>
-              <span className="text-emerald-400">{currentTime.split('T')[1].replace('Z', '')} UTC</span>
-            </div>
+    <div className="min-h-screen bg-black text-zinc-100 font-mono text-xs sm:text-sm selection:bg-rose-500 selection:text-white pb-24">
+      {/* ── Fixed Top Navigation & Quick Anchors ── */}
+      <nav className="sticky top-0 z-50 bg-zinc-950/95 border-b border-zinc-800 backdrop-blur-md px-4 py-3 sm:px-8">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          {/* Logo & Console Title */}
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+            <span className="font-black text-sm tracking-widest text-rose-400">
+              OVERLORD CONSOLE
+            </span>
+            <span className="hidden sm:inline text-zinc-600">//</span>
+            <span className="hidden sm:inline text-[11px] text-zinc-400 font-bold tracking-wider">
+              [ 👑 SUPREME OWNER ]
+            </span>
+          </div>
+
+          {/* Anchor Buttons */}
+          <div className="flex items-center gap-2 overflow-x-auto text-[11px] scrollbar-none">
+            <a
+              href="#switches"
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            >
+              KILL SWITCHES
+            </a>
+            <a
+              href="#users"
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            >
+              USERS
+            </a>
+            <a
+              href="#health"
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            >
+              SYSTEM HEALTH
+            </a>
+            <a
+              href="#logs"
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition"
+            >
+              AUDIT LOGS
+            </a>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadAllData}
+              disabled={isRefreshing}
+              className="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 transition disabled:opacity-50 cursor-pointer text-xs"
+            >
+              {isRefreshing ? 'REFRESHING...' : 'REFRESH DATA'}
+            </button>
+            <Link
+              to="/"
+              className="px-3 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/40 transition cursor-pointer text-xs font-bold"
+            >
+              ← BACK TO ARCADE
+            </Link>
           </div>
         </div>
+      </nav>
 
-        <div className="flex items-center gap-2 opacity-100 visible">
-          <button
-            type="button"
-            onClick={syncAllData}
-            disabled={loading}
-            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-[11px] font-bold tracking-wider uppercase text-white/80 hover:text-white transition cursor-pointer flex items-center gap-1.5 opacity-100 visible"
-          >
-            <span>↺</span>
-            <span>SYNC TELEMETRY</span>
-          </button>
-
-          <Link
-            to="/"
-            className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-[11px] font-bold tracking-wider uppercase text-cyan-300 transition opacity-100 visible"
-          >
-            ‹ ARCADE ROOT
-          </Link>
-        </div>
-      </header>
-
-      {/* ── Toast Notification ──────────────────────────────────────────────── */}
-      {toast && (
+      {/* ── Status Toast / Banner ── */}
+      {bannerMessage && (
         <div
-          className={`fixed top-16 right-4 z-50 px-4 py-2.5 rounded-xl border backdrop-blur-xl text-xs font-bold tracking-wide shadow-2xl flex items-center gap-2 opacity-100 visible ${
-            toast.type === 'error'
-              ? 'bg-red-950/80 border-red-500/60 text-red-200 shadow-[0_0_30px_rgba(255,55,95,0.4)]'
-              : toast.type === 'info'
-              ? 'bg-amber-950/80 border-amber-500/60 text-amber-200 shadow-[0_0_30px_rgba(255,159,10,0.4)]'
-              : 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200 shadow-[0_0_30px_rgba(48,209,88,0.4)]'
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-lg border font-mono text-xs shadow-2xl flex items-center gap-2 ${
+            bannerMessage.isError
+              ? 'bg-rose-950/95 border-rose-500 text-rose-200'
+              : 'bg-emerald-950/95 border-emerald-500 text-emerald-200'
           }`}
         >
-          <span>{toast.type === 'error' ? '⛔' : toast.type === 'info' ? '⚠️' : '✓'}</span>
-          <span>{toast.text}</span>
+          <span>{bannerMessage.isError ? '⚠️' : '✓'}</span>
+          <span>{bannerMessage.text}</span>
         </div>
       )}
 
-      <main className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 opacity-100 visible">
-        {/* ── Live System Pulse Cards (always visible) ──────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 opacity-100 visible">
-          {[
-            {
-              label: 'ACTIVE MODULES',
-              value: `${activeGamesCount} / 10`,
-              sub: activeGamesCount === 10 ? 'ALL SYSTEMS GO' : `${10 - activeGamesCount} OFFLINE`,
-              color: activeGamesCount === 10 ? 'text-emerald-400' : 'text-amber-400',
-              border: activeGamesCount === 10 ? 'border-emerald-500/30' : 'border-amber-500/30',
-            },
-            {
-              label: 'TOTAL USERS',
-              value: stats?.totalUsers ?? '...',
-              sub: 'AUTH.USERS',
-              color: 'text-cyan-400',
-              border: 'border-cyan-500/30',
-            },
-            {
-              label: 'PLAYS TODAY',
-              value: stats?.totalPlaysToday ?? '...',
-              sub: 'ROLLOVER @ 00:00 UTC',
-              color: 'text-purple-400',
-              border: 'border-purple-500/30',
-            },
-            {
-              label: 'AI CALLS TODAY',
-              value: stats?.totalAiCallsToday ?? '...',
-              sub: '3-TIER FAILOVER',
-              color: 'text-emerald-400',
-              border: 'border-emerald-500/30',
-            },
-            {
-              label: 'CLIENT RTT',
-              value: clientDiag ? `${clientDiag.rttMs}ms` : '...',
-              sub: 'DIRECT PING',
-              color: 'text-cyan-300',
-              border: 'border-cyan-500/30',
-            },
-            {
-              label: 'SERVER MEMORY',
-              value: diagnostics?.memoryMb ? `${diagnostics.memoryMb.heapUsed}MB` : 'LIVE',
-              sub: diagnostics?.memoryMb ? `RSS ${diagnostics.memoryMb.rss}MB` : 'EXPRESS NODE',
-              color: 'text-amber-400',
-              border: 'border-amber-500/30',
-            },
-          ].map((card, i) => (
-            <div
-              key={i}
-              className={`p-4 rounded-xl bg-white/[0.02] border backdrop-blur-md opacity-100 visible ${card.border}`}
-            >
-              <div className="text-[10px] text-white/40 tracking-widest uppercase font-semibold mb-1 opacity-100 visible">
-                {card.label}
-              </div>
-              <div className={`text-xl sm:text-2xl font-black font-mono tracking-tight opacity-100 visible ${card.color}`}>
-                {card.value}
-              </div>
-              <div className="text-[9px] text-white/30 tracking-wider uppercase mt-1 opacity-100 visible">
-                {card.sub}
-              </div>
+      <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 space-y-12">
+        {/* ── Top Status Bar (4 Key Stat Boxes) ── */}
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Online Games */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800">
+            <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+              ONLINE GAMES
             </div>
-          ))}
-        </div>
-
-        {/* ── Sticky Anchor Jump Navigation (UNIFIED SINGLE-PAGE CONSOLE) ──── */}
-        <div className="sticky top-[58px] z-30 rounded-2xl border border-cyan-500/25 bg-[#0A0A0F]/95 backdrop-blur-md px-2 sm:px-3 shadow-[0_0_30px_rgba(0,245,255,0.06)] opacity-100 visible">
-          <div className="flex flex-wrap gap-1.5 py-2 opacity-100 visible">
-            {[
-              { id: 'watchdog', label: '01 // WATCHDOG & KILL SWITCHES', badge: isMaintenanceActive ? 'MAINTENANCE' : 'NORMAL' },
-              { id: 'users', label: '02 // USER DATABASE', badge: `${displayUsers.length} PROFILES` },
-              { id: 'diagnostics', label: '03 // DEEP SYSTEM DIAGNOSTICS', badge: '5 CHECKS' },
-              { id: 'audit', label: '04 // AUDIT LOGS', badge: `${auditLogs.length} LOGS` },
-            ].map((link) => (
-              <a
-                key={link.id}
-                href={`#${link.id}`}
-                onClick={() => playClick()}
-                className="px-3 py-2 rounded-lg text-[11px] sm:text-xs font-black tracking-wider sm:tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 bg-white/[0.03] border border-white/10 text-white/70 hover:text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/10 opacity-100 visible no-underline"
-              >
-                <span className="opacity-100 visible">{link.label}</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded font-mono bg-white/10 text-white/40 opacity-100 visible">
-                  {link.badge}
-                </span>
-              </a>
-            ))}
+            <div className="text-2xl font-black text-emerald-400 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              {isLoading ? '...' : `${onlineGamesCount}/10`}
+            </div>
+            <div className="text-[10px] text-zinc-600 mt-1">
+              {10 - onlineGamesCount === 0 ? 'ALL PROTOCOLS ACTIVE' : `${10 - onlineGamesCount} GAMES OFFLINE`}
+            </div>
           </div>
-        </div>
 
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* SECTION 1: WATCHDOG & KILL SWITCHES                                 */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <section id="watchdog" className="space-y-6 opacity-100 visible scroll-mt-28">
-          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
-            <div className="flex items-center gap-2.5 opacity-100 visible">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
-              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
-                01 // MASTER KILL SWITCHES &amp; MAINTENANCE MODE
-              </h2>
+          {/* Total Users */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800">
+            <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+              TOTAL USERS
             </div>
-            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
-              ↑ TOP
-            </a>
+            <div className="text-2xl font-black text-cyan-400">
+              {isLoading ? '...' : stats?.totalUsers ?? users.length}
+            </div>
+            <div className="text-[10px] text-zinc-600 mt-1">REGISTERED ACCOUNTS</div>
           </div>
-            {/* Maintenance Mode Emergency Alert Banner */}
-            <div
-              className={`p-5 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 opacity-100 visible ${
-                isMaintenanceActive
-                  ? 'bg-red-950/30 border-red-500/60 shadow-[0_0_40px_rgba(255,55,95,0.25)]'
-                  : 'bg-emerald-950/20 border-emerald-500/40 shadow-[0_0_30px_rgba(48,209,88,0.1)]'
-              }`}
-            >
-              <div className="flex items-start gap-3.5 opacity-100 visible">
-                <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 border opacity-100 visible ${
-                    isMaintenanceActive
-                      ? 'bg-red-500/20 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(255,55,95,0.4)]'
-                      : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-                  }`}
-                >
-                  {isMaintenanceActive ? '⛔' : '🛡️'}
-                </div>
-                <div className="opacity-100 visible">
-                  <div className="flex items-center gap-2 opacity-100 visible">
-                    <h2
-                      className={`text-sm font-black tracking-wider uppercase opacity-100 visible ${
-                        isMaintenanceActive ? 'text-red-400' : 'text-emerald-400'
-                      }`}
-                    >
-                      {isMaintenanceActive
-                        ? 'GLOBAL MAINTENANCE MODE ACTIVE'
-                        : 'SYSTEM ONLINE // NORMAL OPERATION'}
-                    </h2>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase opacity-100 visible ${
-                        isMaintenanceActive
-                          ? 'bg-red-500/20 border border-red-500/40 text-red-300'
-                          : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-                      }`}
-                    >
-                      {isMaintenanceActive ? 'HTTP 503 ENFORCED' : 'ALLOWING TRAFFIC'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-white/60 mt-1 max-w-2xl leading-relaxed opacity-100 visible">
-                    {isMaintenanceActive
-                      ? 'All non-admin public requests to arcade games and game routes are actively rejected with 503. Only authenticated admin sessions have clearance.'
-                      : 'Platform is serving public arcade players globally. Zero bypass blocks detected.'}
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-2 self-end md:self-auto shrink-0 opacity-100 visible">
-                <button
-                  type="button"
-                  onClick={() => setMaintenanceConfirmOpen(true)}
-                  className={`px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer border shadow-lg opacity-100 visible ${
-                    isMaintenanceActive
-                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-500/50 text-emerald-300 shadow-[0_0_20px_rgba(48,209,88,0.3)]'
-                      : 'bg-red-500/20 hover:bg-red-500/30 border-red-500/50 text-red-300 shadow-[0_0_20px_rgba(255,55,95,0.3)]'
-                  }`}
-                >
-                  {isMaintenanceActive ? 'DEACTIVATE MAINTENANCE ↻' : 'ENTER MAINTENANCE MODE ⛔'}
-                </button>
-              </div>
+          {/* Plays Today */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800">
+            <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+              PLAYS TODAY
             </div>
-
-            {/* Emergency Controls Header */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-white/[0.02] border border-white/10 opacity-100 visible">
-              <div className="opacity-100 visible">
-                <h3 className="text-xs font-black tracking-widest uppercase text-white/90 opacity-100 visible">
-                  KILL SWITCH MATRIX // 10 CANONICAL GAME SUBSYSTEMS
-                </h3>
-                <p className="text-[11px] text-white/40 mt-0.5 opacity-100 visible">
-                  Instant live toggle without server restart. Quotas and game logic verify live status on every request.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 opacity-100 visible">
-                <button
-                  type="button"
-                  onClick={() => setBulkKillConfirmOpen(true)}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-lg bg-red-500/15 hover:bg-red-500/25 border border-red-500/40 text-red-300 text-[10px] font-black tracking-widest uppercase transition cursor-pointer opacity-100 visible"
-                >
-                  KILL ALL
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBulkToggleGames(true)}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-[10px] font-black tracking-widest uppercase transition cursor-pointer opacity-100 visible"
-                >
-                  RESTORE ALL
-                </button>
-              </div>
+            <div className="text-2xl font-black text-amber-400">
+              {isLoading ? '...' : stats?.totalPlaysToday ?? 0}
             </div>
+            <div className="text-[10px] text-zinc-600 mt-1">ROUNDS LOGGED TODAY</div>
+          </div>
 
-            {/* 10-Game Kill Switch Matrix Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 opacity-100 visible">
-              {GAME_DEFINITIONS.map((game) => {
-                const isOnline = stats?.gameStatus ? stats.gameStatus[game.id] !== false : true
-                const isToggling = togglingGame === game.id
-
-                return (
-                  <div
-                    key={game.id}
-                    className={`p-4 rounded-2xl border transition-all duration-300 flex flex-col justify-between opacity-100 visible ${
-                      isOnline
-                        ? 'bg-white/[0.02] hover:bg-white/[0.04] border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.4)]'
-                        : 'bg-red-950/15 border-red-500/40 shadow-[0_0_25px_rgba(255,55,95,0.15)]'
-                    }`}
-                  >
-                    <div className="opacity-100 visible">
-                      <div className="flex items-center justify-between gap-2 mb-2 opacity-100 visible">
-                        <div className="flex items-center gap-2 opacity-100 visible">
-                          <span className="text-xl">{game.icon}</span>
-                          <div className="opacity-100 visible">
-                            <h4 className="text-sm font-bold text-white tracking-wide opacity-100 visible">{game.name}</h4>
-                            <span className="text-[9px] text-white/40 tracking-wider opacity-100 visible">{game.codename}</span>
-                          </div>
-                        </div>
-
-                        <span
-                          className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold tracking-wider uppercase border opacity-100 visible ${
-                            isOnline
-                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                              : 'bg-red-500/20 border-red-500/50 text-red-300'
-                          }`}
-                        >
-                          {isOnline ? 'ONLINE' : 'OFFLINE'}
-                        </span>
-                      </div>
-
-                      <p className="text-[11px] text-white/50 leading-relaxed mb-3 opacity-100 visible">
-                        {game.desc}
-                      </p>
-                    </div>
-
-                    <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2 opacity-100 visible">
-                      <span className="text-[9px] px-2 py-0.5 rounded bg-white/5 text-white/40 font-mono opacity-100 visible">
-                        {game.category}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() => handleToggleGame(game.id, isOnline)}
-                        disabled={isToggling}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all flex items-center gap-1.5 cursor-pointer border opacity-100 visible ${
-                          isOnline
-                            ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/30'
-                            : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/40'
-                        }`}
-                      >
-                        {isToggling ? (
-                          <span>⏳ UPDATING...</span>
-                        ) : isOnline ? (
-                          <span>DEACTIVATE ⛔</span>
-                        ) : (
-                          <span>ENGAGE ONLINE ⚡</span>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
+          {/* Server Status */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800">
+            <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+              SERVER STATUS
             </div>
+            <div className="text-2xl font-black text-emerald-400 flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              ONLINE
+            </div>
+            <div className="text-[10px] text-zinc-600 mt-1">
+              DB LATENCY: {diagnostics?.database?.latencyMs ?? 0}ms
+            </div>
+          </div>
         </section>
 
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* SECTION 2: USER DATABASE                                            */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <section id="users" className="space-y-4 opacity-100 visible scroll-mt-28">
-          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
-            <div className="flex items-center gap-2.5 opacity-100 visible">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
-              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
-                02 // USER DATABASE &amp; PROFILES
-              </h2>
+        {/* ── Maintenance Warning Banner (if active) ── */}
+        {stats?.maintenance_mode && (
+          <div className="p-4 rounded-xl bg-rose-950/40 border-2 border-rose-500 text-rose-300 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <div className="font-bold text-sm tracking-wide text-rose-200">
+                  GLOBAL MAINTENANCE MODE IS CURRENTLY ACTIVE
+                </div>
+                <div className="text-xs text-rose-400/80">
+                  Non-admin players will receive a 503 Maintenance screen upon accessing any game route.
+                </div>
+              </div>
             </div>
-            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
-              ↑ TOP
-            </a>
+            <button
+              onClick={() => toggleMaintenance(false)}
+              disabled={actionLoading.maintenance}
+              className="px-4 py-2 rounded bg-rose-600 hover:bg-rose-500 text-white font-bold tracking-wider cursor-pointer transition disabled:opacity-50"
+            >
+              DISABLE MAINTENANCE
+            </button>
+          </div>
+        )}
+
+        {/* ── SECTION 1: Master Kill Switches ── */}
+        <section id="switches" className="scroll-mt-20 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
+            <div>
+              <h2 className="text-lg font-black tracking-wider text-rose-400 uppercase flex items-center gap-2">
+                <span>⚡</span>
+                <span>SECTION 1 // MASTER KILL SWITCHES</span>
+              </h2>
+              <p className="text-zinc-500 text-xs">
+                Zero-delay emergency toggles for platform modules and individual games.
+              </p>
+            </div>
+
+            {/* Bulk Actions & Maintenance Toggle */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => toggleMaintenance(!stats?.maintenance_mode)}
+                disabled={actionLoading.maintenance}
+                className={`px-3 py-1.5 rounded font-bold transition cursor-pointer border ${
+                  stats?.maintenance_mode
+                    ? 'bg-rose-500 text-white border-rose-400 shadow-[0_0_15px_rgba(255,55,95,0.4)]'
+                    : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:text-white'
+                }`}
+              >
+                MAINTENANCE: {stats?.maintenance_mode ? 'ON' : 'OFF'}
+              </button>
+
+              <button
+                onClick={() => bulkToggleGames(true)}
+                disabled={actionLoading.bulk}
+                className="px-3 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold transition cursor-pointer"
+              >
+                TURN ALL GAMES ON
+              </button>
+
+              <button
+                onClick={() => bulkToggleGames(false)}
+                disabled={actionLoading.bulk}
+                className="px-3 py-1.5 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/40 font-bold transition cursor-pointer"
+              >
+                TURN ALL GAMES OFF
+              </button>
+            </div>
           </div>
 
-          {/* Search & Filter Toolbar */}
-          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
-            <div className="flex items-center gap-2 flex-1 min-w-[280px] opacity-100 visible">
-              <span className="text-white/40">🔍</span>
-              <input
-                type="text"
-                placeholder="SEARCH BY EMAIL OR USER ID..."
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 opacity-100 visible"
-              />
-            </div>
+          {/* 10 Games Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {ALL_GAMES.map((game) => {
+              const isGameOnline = stats?.gameStatus?.[game.id] !== false
+              const isToggling = actionLoading[game.id]
 
-            <div className="flex items-center gap-1 opacity-100 visible">
-              {(['all', 'active', 'banned'] as const).map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  onClick={() => setUserFilter(filter)}
-                  className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition cursor-pointer opacity-100 visible ${
-                    userFilter === filter
-                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
-                      : 'bg-white/5 text-white/50 hover:text-white'
+              return (
+                <div
+                  key={game.id}
+                  className={`p-4 rounded-xl border flex flex-col justify-between transition-colors ${
+                    isGameOnline
+                      ? 'bg-zinc-950 border-zinc-800'
+                      : 'bg-rose-950/20 border-rose-900/60'
                   }`}
                 >
-                  {filter}
-                </button>
-              ))}
-              <span className="text-[11px] text-white/40 ml-3 opacity-100 visible">
-                {displayUsers.length} OF {users.length > 0 ? users.length : displayUsers.length} PROFILES
-              </span>
+                  <div className="space-y-1 mb-3">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-widest">
+                        {game.type}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider ${
+                          isGameOnline
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                        }`}
+                      >
+                        {isGameOnline ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    </div>
+
+                    <div className="font-bold text-sm text-zinc-100">{game.name}</div>
+                    <div className="text-[10px] text-zinc-600 font-mono">
+                      {game.codename}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => toggleGame(game.id, isGameOnline)}
+                    disabled={isToggling}
+                    className={`w-full py-1.5 rounded font-bold text-xs transition cursor-pointer border ${
+                      isGameOnline
+                        ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                        : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    }`}
+                  >
+                    {isToggling ? 'UPDATING...' : isGameOnline ? 'TURN OFF' : 'TURN ON'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* ── SECTION 2: User Database ── */}
+        <section id="users" className="scroll-mt-20 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
+            <div>
+              <h2 className="text-lg font-black tracking-wider text-cyan-400 uppercase flex items-center gap-2">
+                <span>👥</span>
+                <span>SECTION 2 // USER DATABASE</span>
+              </h2>
+              <p className="text-zinc-500 text-xs">
+                Player status, VIP tiers, daily plays, and quota management.
+              </p>
+            </div>
+
+            {/* User Search Input */}
+            <div className="w-full sm:w-72">
+              <input
+                type="text"
+                placeholder="Search username, email, ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-1.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-cyan-500 text-xs"
+              />
             </div>
           </div>
 
-          {/* Users Table */}
-          <div className="rounded-2xl border border-white/10 overflow-hidden bg-white/[0.01] opacity-100 visible">
-            <div className="overflow-x-auto opacity-100 visible">
-              <table className="w-full text-left text-xs opacity-100 visible">
-                <thead className="bg-white/5 text-white/40 text-[10px] uppercase tracking-wider border-b border-white/10 opacity-100 visible">
+          {/* User Table */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-zinc-800 bg-zinc-900/60 text-zinc-400 text-[10px] uppercase tracking-wider">
+                  <th className="py-3 px-4">Player</th>
+                  <th className="py-3 px-4">Role / Tier</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Orbs Today</th>
+                  <th className="py-3 px-4">Total Plays</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {filteredUsers.length === 0 ? (
                   <tr>
-                    <th className="p-3.5">Email</th>
-                    <th className="p-3.5">Tier [FREE / VIP]</th>
-                    <th className="p-3.5">Status [ACTIVE / BANNED]</th>
-                    <th className="p-3.5">Orbs Today</th>
-                    <th className="p-3.5">Total Plays</th>
-                    <th className="p-3.5 text-right">Actions</th>
+                    <td colSpan={6} className="py-8 text-center text-zinc-500">
+                      No users matching "{searchQuery}"
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 font-mono text-[11px] opacity-100 visible">
-                  {displayUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-white/40 opacity-100 visible">
-                        NO USER PROFILES MATCH SEARCH QUERY.
-                      </td>
-                    </tr>
-                  ) : (
-                    displayUsers.map((u) => {
-                      const daily = u.daily_plays ?? 0
-                      const dailyCap = u.is_vip ? 25 : 10
-                      return (
-                        <tr key={u.id} className="hover:bg-white/[0.02] transition opacity-100 visible">
-                          <td className="p-3.5 opacity-100 visible">
-                            <div className="font-sans font-bold text-white text-xs opacity-100 visible">{u.email}</div>
-                            <div className="text-[9px] text-white/30 truncate max-w-[200px] opacity-100 visible">{u.id}</div>
-                          </td>
-                          <td className="p-3.5 opacity-100 visible">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase opacity-100 visible ${
-                                u.is_vip
-                                  ? 'bg-amber-400/20 border border-amber-400/50 text-amber-300'
-                                  : 'bg-white/10 border border-white/20 text-white/50'
-                              }`}
-                            >
-                              {u.is_vip ? '★ VIP' : 'FREE'}
+                ) : (
+                  filteredUsers.map((u) => {
+                    const userIsOwner = isOwner(u.email)
+                    const isSelf = user?.id === u.id
+
+                    return (
+                      <tr
+                        key={u.id}
+                        className={`hover:bg-zinc-900/40 transition-colors ${
+                          userIsOwner ? 'bg-amber-950/10' : ''
+                        }`}
+                      >
+                        {/* Player */}
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-zinc-200">
+                            {u.username ? `@${u.username}` : '(no handle)'}
+                          </div>
+                          <div className="text-[11px] text-zinc-400 font-mono">
+                            {u.email}
+                          </div>
+                          <div className="text-[9px] text-zinc-600 font-mono">
+                            ID: {u.id?.slice(0, 8)}...
+                          </div>
+                        </td>
+
+                        {/* Role / Tier */}
+                        <td className="py-3 px-4">
+                          {userIsOwner ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold border border-amber-400/50 bg-amber-400/10 text-amber-300">
+                              👑 SUPREME OWNER
                             </span>
-                          </td>
-                          <td className="p-3.5 opacity-100 visible">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase opacity-100 visible ${
-                                u.is_banned
-                                  ? 'bg-red-500/20 border border-red-500/40 text-red-300'
-                                  : 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-                              }`}
-                            >
-                              {u.is_banned ? 'BANNED' : 'ACTIVE'}
+                          ) : u.is_vip ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold border border-yellow-500/40 bg-yellow-500/10 text-yellow-300">
+                              ★ VIP
                             </span>
-                          </td>
-                          <td className="p-3.5 opacity-100 visible">
-                            <span className={`opacity-100 visible ${daily >= dailyCap ? 'text-red-400 font-bold' : 'text-cyan-300'}`}>
-                              {daily} / {dailyCap}
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold border border-zinc-700 bg-zinc-900 text-zinc-400">
+                              FREE
                             </span>
-                          </td>
-                          <td className="p-3.5 text-white/80 opacity-100 visible">{u.total_plays ?? 0}</td>
-                          <td className="p-3.5 text-right opacity-100 visible">
-                            <div className="flex items-center justify-end gap-1.5 opacity-100 visible">
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3 px-4">
+                          {u.is_banned ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                              BANNED
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              ACTIVE
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Orbs Today */}
+                        <td className="py-3 px-4 font-mono">
+                          {userIsOwner ? (
+                            <span className="text-amber-400 font-black">∞ UNLIMITED</span>
+                          ) : (
+                            <span>
+                              {u.daily_plays ?? 0} / {u.is_vip ? 25 : 10}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Total Plays */}
+                        <td className="py-3 px-4 font-mono text-zinc-300">
+                          {u.total_plays ?? 0}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-3 px-4 text-right">
+                          {userIsOwner || isSelf ? (
+                            <span className="text-[10px] text-zinc-600 font-mono italic">
+                              [ PROTECTED OWNER ]
+                            </span>
+                          ) : (
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
                               <button
-                                type="button"
-                                onClick={() => handleToggleVip(u.id, u.is_vip === true)}
-                                disabled={actionLoading}
-                                className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible ${
-                                  u.is_vip
-                                    ? 'bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/40 text-amber-300'
-                                    : 'bg-white/5 hover:bg-white/10 border-white/20 text-white/60'
-                                }`}
+                                onClick={() => toggleVip(u.id, u.is_vip)}
+                                disabled={actionLoading[`vip_${u.id}`]}
+                                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-yellow-300 text-[10px] font-bold cursor-pointer transition disabled:opacity-50"
                               >
                                 {u.is_vip ? 'Revoke VIP' : 'Grant VIP'}
                               </button>
 
                               <button
-                                type="button"
-                                onClick={() => (u.is_banned ? handleUnbanUser(u.id) : handleBanUser(u.id))}
-                                disabled={actionLoading}
-                                className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible ${
+                                onClick={() => toggleBan(u.id, u.is_banned)}
+                                disabled={actionLoading[`ban_${u.id}`]}
+                                className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition disabled:opacity-50 ${
                                   u.is_banned
-                                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-                                    : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                    ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                                    : 'bg-rose-500/20 text-rose-300 hover:bg-rose-500/30'
                                 }`}
                               >
                                 {u.is_banned ? 'Unban' : 'Ban'}
                               </button>
 
                               <button
-                                type="button"
-                                onClick={() => handleResetQuota(u.id, u.email)}
-                                disabled={actionLoading}
-                                className="px-2.5 py-1 rounded bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
+                                onClick={() => resetQuota(u.id)}
+                                disabled={actionLoading[`quota_${u.id}`]}
+                                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-300 text-[10px] font-bold cursor-pointer transition disabled:opacity-50"
                               >
                                 Reset Orbs
                               </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleRevokeSession(u.id, u.email)}
-                                disabled={actionLoading}
-                                className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/15 text-white/70 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
-                              >
-                                Logout
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteUser(u.id, u.email)}
-                                disabled={actionLoading}
-                                className="px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-[9px] font-bold uppercase transition cursor-pointer opacity-100 visible"
-                              >
-                                Purge
-                              </button>
                             </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
 
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* SECTION 3: SYSTEM DIAGNOSTICS & TELEMETRY                           */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <section id="diagnostics" className="space-y-6 opacity-100 visible scroll-mt-28">
-          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
-            <div className="flex items-center gap-2.5 opacity-100 visible">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
-              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
-                03 // DEEP SYSTEM DIAGNOSTICS &amp; TELEMETRY
+        {/* ── SECTION 3: System & API Health ── */}
+        <section id="health" className="scroll-mt-20 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
+            <div>
+              <h2 className="text-lg font-black tracking-wider text-emerald-400 uppercase flex items-center gap-2">
+                <span>🩺</span>
+                <span>SECTION 3 // SYSTEM & API HEALTH</span>
               </h2>
+              <p className="text-zinc-500 text-xs">
+                Real-time diagnostics, memory footprint, question banks, and provider status.
+              </p>
             </div>
-            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
-              ↑ TOP
-            </a>
+
+            <button
+              onClick={pingApiKeys}
+              disabled={isPinging}
+              className="px-3 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold transition cursor-pointer disabled:opacity-50"
+            >
+              {isPinging ? 'TESTING CONNECTIONS...' : '[ PING API KEYS ]'}
+            </button>
           </div>
-            {/* Master Scan Trigger Banner */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-[#0e1017] border border-cyan-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 opacity-100 visible shadow-[0_0_25px_rgba(0,245,255,0.1)]">
-              <div className="opacity-100 visible">
-                <div className="flex items-center gap-2.5 opacity-100 visible">
-                  <span className="w-3 h-3 rounded-full bg-cyan-400 shrink-0" />
-                  <h3 className="text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
-                    [ RUN FULL SYSTEM SCAN ] // DEEP TELEMETRY & INTEGRITY
-                  </h3>
-                </div>
-                <p className="text-xs text-white/70 mt-1 max-w-xl leading-relaxed opacity-100 visible">
-                  Low-overhead diagnostics inspecting frontend rendering performance, server telemetry counters, all 10 game modules, and masked API connectivity.
-                </p>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0 opacity-100 visible">
-                <button
-                  type="button"
-                  onClick={handleRunMasterScan}
-                  disabled={runningMasterScan}
-                  className="px-5 py-2.5 rounded-xl bg-cyan-400 text-black hover:bg-cyan-300 text-xs font-black tracking-widest uppercase transition shadow-[0_0_20px_rgba(0,245,255,0.4)] flex items-center gap-2 cursor-pointer opacity-100 visible"
-                >
-                  <span>⚡</span>
-                  <span>{runningMasterScan ? 'SCANNING SYSTEM...' : '[ RUN FULL SYSTEM SCAN ]'}</span>
-                </button>
+          {/* Diagnostics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Server Specs */}
+            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2">
+              <div className="text-zinc-500 text-[10px] uppercase font-bold tracking-wider">
+                RUNTIME & ENVIRONMENT
+              </div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Node Version:</span>
+                  <span className="text-zinc-200">{diagnostics?.nodeVersion ?? 'Node.js'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Process Uptime:</span>
+                  <span className="text-emerald-400 font-bold">
+                    {formatUptime(diagnostics?.processUptimeSeconds ?? 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Platform / Arch:</span>
+                  <span className="text-zinc-200">
+                    {diagnostics?.platform ?? 'linux'} / {diagnostics?.arch ?? 'x64'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Event Loop Lag:</span>
+                  <span className="text-zinc-200">{diagnostics?.eventLoopLagMs ?? 0}ms</span>
+                </div>
               </div>
             </div>
 
-            {/* 5-Module Diagnostic Matrix */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 opacity-100 visible">
-              {/* Module 1: Frontend Checker */}
-              <div className="p-5 rounded-2xl bg-white/[0.02] border border-cyan-500/20 backdrop-blur-md opacity-100 visible">
-                <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4 opacity-100 visible">
-                  <div className="flex items-center gap-2 opacity-100 visible">
-                    <span className="text-base">🖥️</span>
-                    <h4 className="text-xs font-black tracking-wider uppercase text-cyan-400 opacity-100 visible">
-                      MODULE 1: CLIENT & FRONTEND HEALTH
-                    </h4>
-                  </div>
-                  <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold opacity-100 visible">
-                    ACTIVE BROWSER
+            {/* Server Memory */}
+            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2">
+              <div className="text-zinc-500 text-[10px] uppercase font-bold tracking-wider">
+                MEMORY ALLOCATION (RAM)
+              </div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">RSS Memory:</span>
+                  <span className="text-cyan-400 font-bold">
+                    {diagnostics?.memoryMb?.rss ?? 0} MB
                   </span>
                 </div>
-
-                <div className="space-y-2 text-xs opacity-100 visible">
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">HOST ORIGIN</span>
-                    <span className="text-cyan-300 font-bold">{clientDiag?.host || window.location.host}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">VITE BUILD MODE</span>
-                    <span className="text-emerald-400 font-bold">{clientDiag?.buildMode || 'PRODUCTION'}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">SESSION JWT VALIDITY</span>
-                    <span className="text-purple-300 font-bold">{clientDiag?.jwtExpiresIn || 'ACTIVE'}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">STORAGE FOOTPRINT</span>
-                    <span className="text-white/80 font-bold">{clientDiag?.storageKb ?? 0} KB (localStorage)</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">NETWORK DOWNLINK</span>
-                    <span className="text-emerald-400 font-bold">
-                      {clientDiag?.connectionType} • {clientDiag?.onlineStatus ? 'ONLINE' : 'OFFLINE'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 opacity-100 visible">
-                    <span className="text-white/40">ROUND-TRIP PING (RTT)</span>
-                    <span className="text-cyan-300 font-mono font-bold">{clientDiag?.rttMs ?? 0} ms</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Module 2: Backend & Server Health */}
-              <div className="p-5 rounded-2xl bg-white/[0.02] border border-purple-500/20 backdrop-blur-md opacity-100 visible">
-                <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4 opacity-100 visible">
-                  <div className="flex items-center gap-2 opacity-100 visible">
-                    <span className="text-base">⚙️</span>
-                    <h4 className="text-xs font-black tracking-wider uppercase text-purple-400 opacity-100 visible">
-                      MODULE 2: SERVER ENGINE & RUNTIME
-                    </h4>
-                  </div>
-                  <span className="text-[9px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/30 font-bold opacity-100 visible">
-                    EXPRESS TELEMETRY
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Heap Used:</span>
+                  <span className="text-zinc-200">
+                    {diagnostics?.memoryMb?.heapUsed ?? 0} MB
                   </span>
                 </div>
-
-                <div className="space-y-2 text-xs opacity-100 visible">
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">NODE RUNTIME</span>
-                    <span className="text-white/90 font-bold">
-                      {diagnostics?.nodeVersion || 'v20.x'} on {diagnostics?.platform || 'linux'} ({diagnostics?.arch || 'x64'})
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">PROCESS UPTIME</span>
-                    <span className="text-emerald-400 font-bold">
-                      {diagnostics?.processUptimeSeconds
-                        ? `${Math.floor(diagnostics.processUptimeSeconds / 3600)}h ${Math.floor((diagnostics.processUptimeSeconds % 3600) / 60)}m ${diagnostics.processUptimeSeconds % 60}s`
-                        : 'CONNECTED'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">EVENT LOOP LAG</span>
-                    <span className="text-emerald-400 font-bold">{diagnostics?.eventLoopLagMs ?? 0} ms</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">DATABASE PING</span>
-                    <span className="text-cyan-300 font-bold">
-                      {diagnostics?.database?.latencyMs ?? 0} ms [{diagnostics?.database?.status || 'ONLINE'}]
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 opacity-100 visible">
-                    <span className="text-white/40">HTTP ERROR COUNTERS</span>
-                    <span className="font-mono text-white/80">
-                      4xx: <strong className="text-amber-400">{diagnostics?.errorCounters?.error4xx ?? 0}</strong> • 
-                      5xx: <strong className="text-red-400">{diagnostics?.errorCounters?.error5xx ?? 0}</strong> • 
-                      429: <strong className="text-cyan-400">{diagnostics?.errorCounters?.rateLimit429 ?? 0}</strong>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Visual Memory Gauge */}
-                {diagnostics?.memoryMb && (
-                  <div className="mt-3 p-2.5 rounded-xl bg-white/[0.02] border border-white/5 opacity-100 visible">
-                    <div className="flex justify-between text-[10px] text-white/40 mb-1 opacity-100 visible">
-                      <span>HEAP USAGE: {diagnostics.memoryMb.heapUsed}MB / {diagnostics.memoryMb.heapTotal}MB</span>
-                      <span>RSS: {diagnostics.memoryMb.rss}MB</span>
-                    </div>
-                    <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden opacity-100 visible">
-                      <div
-                        className="h-full bg-gradient-to-r from-cyan-400 to-purple-400 opacity-100 visible"
-                        style={{
-                          width: `${Math.min(100, (diagnostics.memoryMb.heapUsed / diagnostics.memoryMb.heapTotal) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Module 3: UI / UX & Performance Checker */}
-              <div className="p-5 rounded-2xl bg-white/[0.02] border border-emerald-500/20 backdrop-blur-md opacity-100 visible">
-                <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4 opacity-100 visible">
-                  <div className="flex items-center gap-2 opacity-100 visible">
-                    <span className="text-base">⚡</span>
-                    <h4 className="text-xs font-black tracking-wider uppercase text-emerald-400 opacity-100 visible">
-                      MODULE 3: UI / UX & FPS PERFORMANCE
-                    </h4>
-                  </div>
-                  <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-bold opacity-100 visible">
-                    60-FRAME SAMPLER
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Heap Total:</span>
+                  <span className="text-zinc-200">
+                    {diagnostics?.memoryMb?.heapTotal ?? 0} MB
                   </span>
                 </div>
-
-                <div className="space-y-2 text-xs opacity-100 visible">
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">MEASURED FPS</span>
-                    <span className="text-emerald-400 font-bold font-mono">
-                      {clientDiag?.fps ?? 60}.0 FPS [STABLE]
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">DOM NODE COMPLEXITY</span>
-                    <span className="text-white/90 font-bold font-mono">{clientDiag?.domNodes ?? 0} NODES</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">VIEWPORT DIMENSIONS</span>
-                    <span className="text-cyan-300 font-mono font-bold">{clientDiag?.viewport}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                    <span className="text-white/40">DYNAMIC DVH SUPPORT</span>
-                    <span className="text-emerald-400 font-bold">
-                      {clientDiag?.dvhSupported ? 'SUPPORTED [100dvh]' : 'FALLBACK'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 opacity-100 visible">
-                    <span className="text-white/40">WEB FONT ENGINE</span>
-                    <span className="text-purple-300 font-bold font-mono">{clientDiag?.fontsLoaded}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Module 4: API Keys & External Services Telemetry */}
-              <div className="p-5 rounded-2xl bg-white/[0.02] border border-amber-500/20 backdrop-blur-md opacity-100 visible">
-                <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4 opacity-100 visible">
-                  <div className="flex items-center gap-2 opacity-100 visible">
-                    <span className="text-base">🔑</span>
-                    <h4 className="text-xs font-black tracking-wider uppercase text-amber-400 opacity-100 visible">
-                      MODULE 4: MASKED KEYS & LIVE PING
-                    </h4>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleLivePingKeys}
-                    disabled={pingingServices}
-                    className="text-[10px] px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold uppercase transition cursor-pointer flex items-center gap-1 opacity-100 visible"
-                  >
-                    <span>⚡</span>
-                    <span>LIVE PING</span>
-                  </button>
-                </div>
-
-                <div className="space-y-1.5 text-xs opacity-100 visible">
-                  {apiReport?.keys ? (
-                    Object.entries(apiReport.keys).map(([k, val]) => (
-                      <div key={k} className="flex justify-between items-center py-1 border-b border-white/5 text-[11px] opacity-100 visible">
-                        <span className="text-white/50 font-mono">{k}</span>
-                        <div className="flex items-center gap-2 opacity-100 visible">
-                          <span className="font-mono text-white/70">{val.masked}</span>
-                          <span
-                            className={`text-[9px] px-1.5 py-0.2 rounded font-bold opacity-100 visible ${
-                              val.status === 'CONFIGURED'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-red-500/10 text-red-400 border border-red-500/30'
-                            }`}
-                          >
-                            {val.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-white/40 text-center py-4 opacity-100 visible">Click "[ RUN FULL SYSTEM SCAN ]" to inspect keys</div>
-                  )}
-                </div>
-
-                {/* 3-Tier AI Failover Telemetry */}
-                {apiReport?.aiFailover && (
-                  <div className="mt-4 pt-3 border-t border-white/10 opacity-100 visible">
-                    <div className="text-[10px] font-black tracking-widest uppercase text-amber-300/80 mb-2 opacity-100 visible">
-                      3-TIER AI FAILOVER TELEMETRY
-                    </div>
-                    <div className="space-y-1.5 opacity-100 visible">
-                      {apiReport.aiFailover.providers.map((p) => (
-                        <div key={p.name} className="flex items-center justify-between gap-2 text-[11px] py-1 border-b border-white/5 opacity-100 visible">
-                          <div className="flex items-center gap-2 min-w-0 opacity-100 visible">
-                            <span className="font-bold text-white/80">{p.name}</span>
-                            <span className="text-[9px] text-white/30 font-mono">{p.tier}</span>
-                            <span className="font-mono text-white/50 truncate">{p.key.masked}</span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0 opacity-100 visible">
-                            <span className="text-[9px] text-white/40 font-mono">
-                              {p.calls} calls • {p.errors} err • {p.rateLimit429s}×429
-                            </span>
-                            <span
-                              className={`text-[9px] px-1.5 py-0.5 rounded font-bold border opacity-100 visible ${
-                                p.status === 'CONFIGURED'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                  : 'bg-red-500/10 text-red-400 border-red-500/30'
-                              }`}
-                            >
-                              {p.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-2 text-[10px] text-white/40 leading-relaxed opacity-100 visible">
-                      QUOTA: {apiReport.aiFailover.thresholds.dailyAiCallsPerUser} AI calls/user/day •{' '}
-                      {apiReport.aiFailover.thresholds.dailyPlaysPerUser} plays/user/day
-                      <br />
-                      <span className="text-white/30">{apiReport.aiFailover.thresholds.rateLimits}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Endpoint Traffic Breakdown */}
-                {apiReport?.traffic && (
-                  <div className="mt-4 pt-3 border-t border-white/10 opacity-100 visible">
-                    <div className="text-[10px] font-black tracking-widest uppercase text-amber-300/80 mb-2 opacity-100 visible">
-                      ENDPOINT TRAFFIC BREAKDOWN
-                    </div>
-                    <div className="space-y-1 text-[11px] opacity-100 visible">
-                      <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                        <span className="text-white/40">TOTAL REQUESTS (SINCE BOOT)</span>
-                        <span className="text-white/90 font-bold font-mono">{apiReport.traffic.totalRequests}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                        <span className="text-white/40">/API/GAMES HITS</span>
-                        <span className="text-cyan-300 font-bold font-mono">{apiReport.traffic.endpointCounts?.games ?? 0}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                        <span className="text-white/40">/API/LEADERBOARD HITS</span>
-                        <span className="text-cyan-300 font-bold font-mono">{apiReport.traffic.endpointCounts?.leaderboard ?? 0}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                        <span className="text-white/40">/API/AUTH HITS</span>
-                        <span className="text-cyan-300 font-bold font-mono">{apiReport.traffic.endpointCounts?.auth ?? 0}</span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-white/5 opacity-100 visible">
-                        <span className="text-white/40">AVG RESPONSE LATENCY</span>
-                        <span className="text-emerald-400 font-bold font-mono">{apiReport.traffic.averageLatencyMs} ms</span>
-                      </div>
-                      <div className="flex justify-between py-1 opacity-100 visible">
-                        <span className="text-white/40">CACHE-CONTROL HEADER</span>
-                        <span className={`font-bold font-mono ${apiReport.traffic.cacheControlVerified ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {apiReport.traffic.cacheControlVerified ? 'NO-STORE ✓' : 'MISSING'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Module 5: All-Games Content & Health Checker */}
-              <div className="p-5 rounded-2xl bg-white/[0.02] border border-rose-500/20 backdrop-blur-md lg:col-span-2 opacity-100 visible">
-                <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4 opacity-100 visible">
-                  <div className="flex items-center gap-2 opacity-100 visible">
-                    <span className="text-base">🎮</span>
-                    <h4 className="text-xs font-black tracking-wider uppercase text-rose-400 opacity-100 visible">
-                      MODULE 5: ALL-GAMES CONTENT & HEALTH CHECKER
-                    </h4>
-                  </div>
-                  <span className="text-[9px] px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/30 font-bold opacity-100 visible">
-                    LIVE DB COUNTS
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">External:</span>
+                  <span className="text-zinc-200">
+                    {diagnostics?.memoryMb?.external ?? 0} MB
                   </span>
                 </div>
-
-                {apiReport?.gamesContent ? (
-                  <div className="space-y-4 opacity-100 visible">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] opacity-100 visible">
-                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 opacity-100 visible">
-                        <div className="text-white/40 text-[9px] uppercase tracking-wider">HL QUESTIONS</div>
-                        <div className="text-cyan-300 font-bold font-mono">{apiReport.gamesContent.hl_questions.total} <span className="text-white/40">({apiReport.gamesContent.hl_questions.unused} fresh)</span></div>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 opacity-100 visible">
-                        <div className="text-white/40 text-[9px] uppercase tracking-wider">TURING SCENARIOS</div>
-                        <div className="text-cyan-300 font-bold font-mono">{apiReport.gamesContent.turing_scenarios.total}</div>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 opacity-100 visible">
-                        <div className="text-white/40 text-[9px] uppercase tracking-wider">SURVIVAL SCENARIOS</div>
-                        <div className="text-cyan-300 font-bold font-mono">{apiReport.gamesContent.survival_scenarios.total}</div>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 opacity-100 visible">
-                        <div className="text-white/40 text-[9px] uppercase tracking-wider">LEADERBOARD ROWS</div>
-                        <div className="text-cyan-300 font-bold font-mono">{Object.values(apiReport.gamesContent.leaderboards).reduce((a, b) => a + b, 0)}</div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 opacity-100 visible">
-                      {GAME_DEFINITIONS.map((game) => {
-                        const online = apiReport.gamesContent!.gameStatus[game.id] !== false
-                        const lb = apiReport.gamesContent!.leaderboards[game.id]
-                        const hasContentPool =
-                          game.id === 'higher_lower' ? apiReport.gamesContent!.hl_questions.total > 0
-                          : game.id === 'turing_test' ? apiReport.gamesContent!.turing_scenarios.total > 0
-                          : game.id === 'survival' ? apiReport.gamesContent!.survival_scenarios.total > 0
-                          : true
-                        return (
-                          <div key={game.id} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-[11px] opacity-100 visible ${
-                            online
-                              ? 'bg-emerald-950/15 border-emerald-500/25'
-                              : 'bg-red-950/15 border-red-500/40'
-                          }`}>
-                            <div className="flex items-center gap-2 min-w-0 opacity-100 visible">
-                              <span>{game.icon}</span>
-                              <span className="text-white/80 font-bold truncate">{game.name}</span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0 font-mono text-[9px] opacity-100 visible">
-                              {lb !== undefined && <span className="text-white/40">LB:{lb}</span>}
-                              {game.id === 'higher_lower' && <span className="text-white/40">Q:{apiReport.gamesContent!.hl_questions.total}</span>}
-                              {game.id === 'turing_test' && <span className="text-white/40">Q:{apiReport.gamesContent!.turing_scenarios.total}</span>}
-                              {game.id === 'survival' && <span className="text-white/40">Q:{apiReport.gamesContent!.survival_scenarios.total}</span>}
-                              <span className={online ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
-                                {online ? 'ONLINE' : 'OFFLINE'}
-                              </span>
-                              {!hasContentPool && <span className="text-amber-400 font-bold">POOL:EMPTY</span>}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-white/40 text-center py-4 text-xs opacity-100 visible">Click "[ RUN FULL SYSTEM SCAN ]" to inspect game content health</div>
-                )}
               </div>
             </div>
 
-            {/* Live Ping Results Stream */}
-            {livePings && livePings.length > 0 && (
-              <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/10 opacity-100 visible">
-                <h4 className="text-xs font-black tracking-wider uppercase text-cyan-400 mb-3 opacity-100 visible">
-                  EXTERNAL CONNECTIVITY RESULTS
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 opacity-100 visible">
-                  {livePings.map((p, i) => (
-                    <div
-                      key={i}
-                      className={`p-3 rounded-xl border opacity-100 visible ${
-                        p.status === 'ONLINE'
-                          ? 'bg-emerald-950/20 border-emerald-500/40'
-                          : 'bg-red-950/20 border-red-500/40'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center mb-1 opacity-100 visible">
-                        <span className="text-[11px] font-bold text-white">{p.provider}</span>
-                        <span
-                          className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded opacity-100 visible ${
-                            p.status === 'ONLINE' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-red-400/20 text-red-300'
-                          }`}
-                        >
-                          {p.status}
-                        </span>
-                      </div>
-                      <div className="text-xs font-mono font-bold text-white/80 opacity-100 visible">
-                        LATENCY: <strong className="text-cyan-300">{p.latencyMs}ms</strong>
-                      </div>
-                      <p className="text-[10px] text-white/40 mt-1 truncate opacity-100 visible">{p.message}</p>
-                    </div>
-                  ))}
+            {/* DB Question & Scenario Counts */}
+            <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2">
+              <div className="text-zinc-500 text-[10px] uppercase font-bold tracking-wider">
+                DATABASE QUESTION BANKS
+              </div>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Higher/Lower Questions:</span>
+                  <span className="text-amber-400 font-bold">
+                    {apiReport?.gamesContent?.hl_questions?.total ?? 0} total (
+                    {apiReport?.gamesContent?.hl_questions?.unused ?? 0} fresh)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Turing Test Scenarios:</span>
+                  <span className="text-cyan-400 font-bold">
+                    {apiReport?.gamesContent?.turing_scenarios?.total ?? 0}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Survival Protocol Scenarios:</span>
+                  <span className="text-rose-400 font-bold">
+                    {apiReport?.gamesContent?.survival_scenarios?.total ?? 0}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Database Ping:</span>
+                  <span className="text-emerald-400 font-bold">
+                    {diagnostics?.database?.latencyMs ?? 0}ms
+                  </span>
                 </div>
               </div>
-            )}
-        </section>
-
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* SECTION 4: AUDIT LOGS & SECURITY TERMINAL                           */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <section id="audit" className="space-y-4 opacity-100 visible scroll-mt-28">
-          <div className="flex items-center justify-between pb-2 border-b border-white/10 opacity-100 visible">
-            <div className="flex items-center gap-2.5 opacity-100 visible">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#00F5FF]" />
-              <h2 className="text-xs sm:text-sm font-black tracking-widest uppercase text-cyan-300 opacity-100 visible">
-                04 // ADMIN AUDIT LOGS &amp; SECURITY TERMINAL
-              </h2>
             </div>
-            <a href="#top" className="text-[10px] text-white/40 hover:text-cyan-300 uppercase tracking-wider font-mono opacity-100 visible">
-              ↑ TOP
-            </a>
           </div>
-            {/* Audit Toolbar */}
-            <div className="p-4 rounded-xl bg-white/[0.02] border border-white/10 flex flex-wrap items-center justify-between gap-3 opacity-100 visible">
-              <div className="flex items-center gap-2 flex-1 min-w-[280px] opacity-100 visible">
-                <span className="text-white/40">📜</span>
-                <input
-                  type="text"
-                  placeholder="FILTER AUDIT LOGS BY ACTION, TARGET, OR ADMIN..."
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 opacity-100 visible"
-                />
-              </div>
 
-              <div className="flex items-center gap-1 flex-wrap opacity-100 visible">
-                {['ALL', 'MAINTENANCE', 'GAME', 'USER', 'QUOTA', 'PING'].map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    onClick={() => setAuditFilter(filter)}
-                    className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition cursor-pointer opacity-100 visible ${
-                      auditFilter === filter
-                        ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
-                        : 'bg-white/5 text-white/50 hover:text-white'
-                    }`}
+          {/* Masked API Keys Grid */}
+          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
+            <div className="text-zinc-500 text-[10px] uppercase font-bold tracking-wider">
+              CONFIGURED API KEYS & EXTERNAL PROVIDERS
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                {
+                  label: 'SUPABASE DB & AUTH',
+                  keyData: apiReport?.keys?.SUPABASE_SERVICE_ROLE_KEY,
+                },
+                {
+                  label: 'GROQ (AI TIER 1)',
+                  keyData: apiReport?.keys?.GROQ_API_KEY,
+                },
+                {
+                  label: 'GEMINI (AI TIER 2)',
+                  keyData: apiReport?.keys?.GEMINI_API_KEY,
+                },
+                {
+                  label: 'OPENROUTER (AI TIER 3)',
+                  keyData: apiReport?.keys?.OPENROUTER_API_KEY,
+                },
+              ].map((item) => {
+                const isConfigured = item.keyData?.status === 'CONFIGURED'
+                return (
+                  <div
+                    key={item.label}
+                    className="p-3 rounded bg-zinc-900/60 border border-zinc-800 space-y-1"
                   >
-                    {filter}
-                  </button>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-zinc-400 font-bold">{item.label}</span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                          isConfigured
+                            ? 'bg-emerald-500/15 text-emerald-400'
+                            : 'bg-rose-500/15 text-rose-400'
+                        }`}
+                      >
+                        {isConfigured ? 'CONFIGURED' : 'MISSING'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-zinc-400">
+                      {item.keyData?.masked || 'NOT SET'}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Live Ping Results (if triggered) */}
+          {livePing && livePing.length > 0 && (
+            <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/40 space-y-3">
+              <div className="text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <span>✓</span>
+                <span>LIVE PING RESULTS</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {livePing.map((res: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded bg-zinc-900 border border-zinc-800 space-y-1"
+                  >
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="text-zinc-200">{res.provider}</span>
+                      <span
+                        className={
+                          res.status === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'
+                        }
+                      >
+                        {res.status}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">Latency: {res.latencyMs}ms</div>
+                    <div className="text-[10px] text-zinc-400 truncate">{res.message}</div>
+                  </div>
                 ))}
               </div>
             </div>
-
-            {/* Audit Log Terminal Feed */}
-            <div className="rounded-2xl border border-white/10 bg-black/80 p-4 font-mono text-xs overflow-hidden opacity-100 visible">
-              <div className="flex justify-between items-center pb-3 border-b border-white/10 mb-3 text-[10px] text-white/40 uppercase opacity-100 visible">
-                <span>TIMESTAMP // ACTION // TARGET</span>
-                <span>ADMIN IDENTITY</span>
-              </div>
-
-              <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2 opacity-100 visible">
-                {filteredLogs.length === 0 ? (
-                  <div className="p-8 rounded-xl bg-white/[0.02] border border-white/10 text-center opacity-100 visible">
-                    <p className="text-sm font-bold text-white/70 tracking-wider">NO AUDIT EVENTS RECORDED YET</p>
-                    <p className="text-xs text-white/40 mt-1">
-                      Administrative mutations (Kill switches, Quota resets, Maintenance mode, Bans) are logged here automatically.
-                    </p>
-                  </div>
-                ) : (
-                  filteredLogs.map((log, idx) => (
-                    <div
-                      key={log.id || idx}
-                      className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/5 transition flex flex-col gap-1.5 opacity-100 visible"
-                    >
-                      <div className="flex justify-between items-start gap-2 opacity-100 visible">
-                        <div className="flex items-center gap-2 flex-wrap opacity-100 visible">
-                          <span className="text-[10px] text-white/40">
-                            {new Date(log.created_at).toLocaleString()}
-                          </span>
-                          <span
-                            className={`text-[9px] px-2 py-0.5 rounded font-black tracking-wider uppercase border opacity-100 visible ${
-                              log.action.includes('MAINTENANCE')
-                                ? 'bg-red-500/20 border-red-500/40 text-red-300'
-                                : log.action.includes('RESET_QUOTA')
-                                ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
-                                : log.action.includes('BAN')
-                                ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                                : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                            }`}
-                          >
-                            {log.action}
-                          </span>
-                          <span className="text-white/80 font-bold opacity-100 visible">
-                            TARGET: <strong className="text-cyan-300">{log.target}</strong>
-                          </span>
-                        </div>
-
-                        <span className="text-[10px] text-white/40 shrink-0 opacity-100 visible">
-                          BY: {log.admin_email}
-                        </span>
-                      </div>
-
-                      {log.details && Object.keys(log.details).length > 0 && (
-                        <pre className="text-[10px] text-white/50 bg-white/[0.02] p-2 rounded-lg overflow-x-auto opacity-100 visible">
-                          {JSON.stringify(log.details, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+          )}
         </section>
-      </main>
 
-      {/* ── Maintenance Mode Confirmation Modal ─────────────────────────────── */}
-      {maintenanceConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md opacity-100 visible">
-          <div
-            className="max-w-md w-full p-6 rounded-2xl bg-[#0D0D14] border-2 border-red-500/60 shadow-[0_0_60px_rgba(255,55,95,0.4)] text-center opacity-100 visible"
-          >
-            <div className="text-4xl mb-3">⚠️</div>
-            <h3 className="text-lg font-black uppercase tracking-wider text-red-500 mb-2 opacity-100 visible">
-              {isMaintenanceActive
-                ? 'RESTORE PUBLIC ACCESS?'
-                : 'ENGAGE GLOBAL MAINTENANCE MODE?'}
-            </h3>
-            <p className="text-xs text-white/60 mb-6 leading-relaxed opacity-100 visible">
-              {isMaintenanceActive
-                ? 'This will immediately reopen public access to all arcade games across Pixelverse.'
-                : 'This will lock out ALL non-admin users across Cloudflare Workers. Any active game sessions will be terminated and return HTTP 503 MAINTENANCE_MODE.'}
-            </p>
-
-            <div className="flex gap-2 opacity-100 visible">
-              <button
-                type="button"
-                onClick={() => setMaintenanceConfirmOpen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition cursor-pointer opacity-100 visible"
-              >
-                CANCEL
-              </button>
-              <button
-                type="button"
-                onClick={handleToggleMaintenance}
-                disabled={actionLoading}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition cursor-pointer opacity-100 visible ${
-                  isMaintenanceActive
-                    ? 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_0_20px_rgba(48,209,88,0.4)]'
-                    : 'bg-red-500 text-white hover:bg-red-600 shadow-[0_0_20px_rgba(255,55,95,0.4)]'
-                }`}
-              >
-                {isMaintenanceActive ? 'RESTORE PUBLIC' : 'ENGAGE 503 LOCKOUT'}
-              </button>
+        {/* ── SECTION 4: Audit Logs ── */}
+        <section id="logs" className="scroll-mt-20 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+            <div>
+              <h2 className="text-lg font-black tracking-wider text-amber-400 uppercase flex items-center gap-2">
+                <span>📋</span>
+                <span>SECTION 4 // AUDIT LOGS</span>
+              </h2>
+              <p className="text-zinc-500 text-xs">
+                Immutable record of administrative actions, switches, and user moderation.
+              </p>
             </div>
+            <span className="text-xs text-zinc-500">{auditLogs.length} events</span>
           </div>
-        </div>
-      )}
 
-      {/* ── Emergency Bulk Kill Confirmation Modal ──────────────────────────── */}
-      {bulkKillConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md opacity-100 visible">
-          <div
-            className="max-w-md w-full p-6 rounded-2xl bg-[#0D0D14] border-2 border-red-500/60 shadow-[0_0_60px_rgba(255,55,95,0.4)] text-center opacity-100 visible"
-          >
-            <div className="text-4xl mb-3">⛔</div>
-            <h3 className="text-lg font-black uppercase tracking-wider text-red-500 mb-2 opacity-100 visible">
-              EMERGENCY: KILL ALL 10 GAMES?
-            </h3>
-            <p className="text-xs text-white/60 mb-6 leading-relaxed opacity-100 visible">
-              This will immediately set all 10 canonical game modules to OFFLINE in app_settings. All game entrypoints and generation APIs will return 403 GAME_DISABLED.
-            </p>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 max-h-96 overflow-y-auto space-y-2">
+            {auditLogs.length === 0 ? (
+              <div className="py-8 text-center text-zinc-600">
+                No admin actions logged yet.
+              </div>
+            ) : (
+              auditLogs.map((log: any, idx: number) => (
+                <div
+                  key={idx}
+                  className="p-2.5 rounded bg-zinc-900/40 border border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+                >
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-zinc-500 text-[10px]">
+                      {new Date(log.created_at || log.timestamp || Date.now()).toLocaleTimeString()}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-400/10 text-amber-300 border border-amber-400/20">
+                      {log.action_type || log.action}
+                    </span>
+                    <span className="text-zinc-300 font-bold">{log.admin_email}</span>
+                    <span className="text-zinc-600">→</span>
+                    <span className="text-zinc-400">{log.target_resource || log.target}</span>
+                  </div>
 
-            <div className="flex gap-2 opacity-100 visible">
-              <button
-                type="button"
-                onClick={() => setBulkKillConfirmOpen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition cursor-pointer opacity-100 visible"
-              >
-                ABORT
-              </button>
-              <button
-                type="button"
-                onClick={() => handleBulkToggleGames(false)}
-                disabled={actionLoading}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white hover:bg-red-600 text-xs font-black uppercase tracking-widest shadow-[0_0_25px_rgba(255,55,95,0.5)] transition cursor-pointer opacity-100 visible"
-              >
-                CONFIRM KILL ALL
-              </button>
-            </div>
+                  {log.details && (
+                    <div className="text-[10px] text-zinc-500 truncate max-w-xs">
+                      {typeof log.details === 'string'
+                        ? log.details
+                        : JSON.stringify(log.details)}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
-        </div>
-      )}
+        </section>
+      </div>
     </div>
   )
 }
-
-export default AdminConsole

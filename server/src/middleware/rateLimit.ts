@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { isOwnerEmail } from '../lib/owner';
 
 interface Bucket {
   count: number;
@@ -71,6 +72,10 @@ export function rateLimit({ windowMs, max, keyPrefix = 'rl' }: RateLimitOptions)
   sweepExpired(buckets, windowMs);
 
   return (req: Request, res: Response, next: NextFunction) => {
+    if (isOwnerEmail(req.user?.email)) {
+      return next();
+    }
+
     const retryAfter = hitBucket(buckets, clientKey(req, keyPrefix), windowMs, max);
     if (retryAfter !== null) {
       return tooManyRequests(res, retryAfter);
@@ -81,8 +86,7 @@ export function rateLimit({ windowMs, max, keyPrefix = 'rl' }: RateLimitOptions)
 
 // ── Global abuse throttle ────────────────────────────────────────────────────
 // Generous per-IP ceiling across the whole public API surface. Mounted once in
-// server.ts before all routes; /api/admin/* is exempt so the overlord console
-// is never throttled.
+// server.ts before all routes; /api/admin/* and owner requests are exempt.
 
 const ABUSE_WINDOW_MS = 60_000;
 const ABUSE_MAX_REQUESTS = 300;
@@ -91,7 +95,7 @@ sweepExpired(abuseBuckets, ABUSE_WINDOW_MS);
 
 export function abuseRateLimit(req: Request, res: Response, next: NextFunction) {
   const path = req.path || '';
-  if (!path.startsWith('/api/') || path.startsWith('/api/admin')) {
+  if (!path.startsWith('/api/') || path.startsWith('/api/admin') || isOwnerEmail(req.user?.email)) {
     return next();
   }
 

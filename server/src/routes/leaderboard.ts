@@ -3,14 +3,18 @@ import { requireAuth } from '../middleware/requireAuth';
 import { supabaseAdmin } from '../lib/supabase';
 import { maintenanceGate } from '../middleware/maintenanceGate';
 import { validateAndConsumeSession, SCOREABLE_GAME_IDS } from '../middleware/playGate';
+import { isOwnerEmail } from '../lib/owner';
 
 export const leaderboardRouter = Router();
 
 export interface LeaderboardEntry {
+  id?: string;
   rank: number;
-  email_prefix: string;
+  display_name: string;
+  email_prefix: string; // compatibility alias
   score: number;
   is_vip?: boolean;
+  is_owner?: boolean;
 }
 
 interface CachedLeaderboard {
@@ -27,6 +31,19 @@ export const MAX_LEADERBOARD_SCORE = 1_000_000;
 
 // In-memory cache for user email prefixes to prevent redundant auth lookups
 export const userEmailCache = new Map<string, string>();
+
+/** Helper to mask email for privacy (e.g. alexander -> alex***) */
+function maskEmailPrefix(email?: string | null, userId?: string): string {
+  if (!email) return `pilot_${(userId || 'user').slice(0, 4)}***`;
+  const prefix = email.split('@')[0] || '';
+  if (prefix.length > 4) {
+    return `${prefix.slice(0, 4)}***`;
+  }
+  if (prefix.length >= 2) {
+    return `${prefix.slice(0, 2)}***`;
+  }
+  return `${prefix}***`;
+}
 
 /**
  * GET /api/leaderboard/:gameId
@@ -55,7 +72,7 @@ leaderboardRouter.get(
       // Query top 10 scores for this game
       const { data, error } = await supabaseAdmin
         .from('game_scores')
-        .select('score, user_id, created_at')
+        .select('id, score, user_id, created_at')
         .eq('game_id', gameId)
         .order('score', { ascending: false })
         .limit(10);
@@ -65,47 +82,58 @@ leaderboardRouter.get(
         return res.status(500).json({ error: 'failed_to_fetch_leaderboard' });
       }
 
-      // Fetch VIP flags for ranked users (single batched query)
+      // Fetch profiles (VIP + custom username) for ranked users (single batched query)
       const rankedIds = (data || []).map((r: any) => r.user_id).filter(Boolean);
-      const vipMap = new Map<string, boolean>();
+      const profileMap = new Map<string, { is_vip?: boolean; username?: string | null }>();
       if (rankedIds.length > 0) {
         const { data: profs } = await supabaseAdmin
           .from('profiles')
-          .select('id, is_vip')
+          .select('id, is_vip, username')
           .in('id', rankedIds);
-        (profs || []).forEach((p: any) => vipMap.set(p.id, p.is_vip === true));
+        (profs || []).forEach((p: any) =>
+          profileMap.set(p.id, { is_vip: p.is_vip === true, username: p.username || null })
+        );
       }
 
-      // Format top scores with email prefix
+      // Format top scores with custom username or privacy masked handle
       const entries: LeaderboardEntry[] = await Promise.all(
         (data || []).map(async (row, index) => {
-          let emailPrefix = 'Player';
           const userId = row.user_id;
+          const prof = profileMap.get(userId);
+          let rawEmail = '';
 
           if (userId) {
             if (userEmailCache.has(userId)) {
-              emailPrefix = userEmailCache.get(userId)!;
+              rawEmail = userEmailCache.get(userId)!;
             } else {
               try {
                 const { data: userData } = await supabaseAdmin.auth.admin.getUserById(userId);
                 if (userData?.user?.email) {
-                  emailPrefix = userData.user.email.split('@')[0];
-                  userEmailCache.set(userId, emailPrefix);
-                } else {
-                  emailPrefix = `pilot_${userId.slice(0, 5)}`;
+                  rawEmail = userData.user.email;
+                  userEmailCache.set(userId, rawEmail);
                 }
               } catch (err) {
                 console.warn(`[leaderboard] Failed to fetch email for user ${userId}:`, err);
-                emailPrefix = `pilot_${userId.slice(0, 5)}`;
               }
             }
           }
 
+          const isOwner = isOwnerEmail(rawEmail);
+          const isVip = isOwner || prof?.is_vip === true;
+
+          // Priority: 1. Custom username (if set), 2. Masked email handle (alex***)
+          const displayName = prof?.username && prof.username.trim()
+            ? prof.username.trim()
+            : maskEmailPrefix(rawEmail, userId);
+
           return {
+            id: row.id,
             rank: index + 1,
-            email_prefix: emailPrefix,
+            display_name: displayName,
+            email_prefix: displayName,
             score: Number(row.score) || 0,
-            is_vip: vipMap.get(userId) === true,
+            is_vip: isVip,
+            is_owner: isOwner,
           };
         })
       );

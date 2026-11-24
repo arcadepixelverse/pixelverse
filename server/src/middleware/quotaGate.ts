@@ -1,11 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
+import { isOwnerEmail } from '../lib/owner';
 
 export const quotaGate = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
       return res.status(401).json({ error: 'unauthorized' });
+    }
+
+    // Supreme Owner has unlimited AI quota
+    if (isOwnerEmail(req.user?.email)) {
+      res.setHeader('X-Daily-Usage', '0/999999');
+      return next();
     }
 
     // VIP members get 2.5x daily AI-call headroom (25 orbs vs 10 free-tier orbs)

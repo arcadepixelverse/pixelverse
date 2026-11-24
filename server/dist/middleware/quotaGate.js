@@ -2,11 +2,17 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.quotaGate = void 0;
 const supabase_1 = require("../lib/supabase");
+const owner_1 = require("../lib/owner");
 const quotaGate = async (req, res, next) => {
     try {
         const userId = req.user?.id;
         if (!userId) {
             return res.status(401).json({ error: 'unauthorized' });
+        }
+        // Supreme Owner has unlimited AI quota
+        if ((0, owner_1.isOwnerEmail)(req.user?.email)) {
+            res.setHeader('X-Daily-Usage', '0/999999');
+            return next();
         }
         // VIP members get 2.5x daily AI-call headroom (25 orbs vs 10 free-tier orbs)
         let limit = 20;

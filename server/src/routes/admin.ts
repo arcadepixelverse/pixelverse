@@ -10,6 +10,7 @@ import {
 import { logAdminAction, getAuditLogs } from '../lib/auditLog';
 import { serverTelemetry } from '../server';
 import { aiProviderTelemetry } from '../lib/gemini';
+import { leaderboardCache } from './leaderboard';
 
 export const adminRouter = Router();
 
@@ -204,10 +205,10 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
       (usageData || []).map((row) => [row.user_id, Number(row.ai_calls_count) || 0])
     );
 
-    // 3. Fetch profiles (is_banned, total_plays, daily_plays, last_played_at)
+    // 3. Fetch profiles (is_banned, total_plays, daily_plays, last_played_at, username)
     const { data: profilesData, error: profileErr } = await supabaseAdmin
       .from('profiles')
-      .select('id, is_banned, is_vip, total_plays, daily_plays, last_played_at');
+      .select('id, is_banned, is_vip, total_plays, daily_plays, last_played_at, username');
 
     if (profileErr) {
       console.warn('[admin/users] Error querying profiles:', profileErr);
@@ -222,6 +223,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
       return {
         id: u.id,
         email: u.email || 'Anonymous',
+        username: prof?.username || null,
         ai_calls_count: usageMap.get(u.id) || 0,
         daily_plays: prof?.daily_plays ?? 0,
         total_plays: prof?.total_plays ?? 0,
@@ -733,5 +735,39 @@ adminRouter.get('/audit-logs', async (_req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[admin/audit-logs] Error:', err);
     return res.status(500).json({ error: 'Failed to fetch audit logs' });
+  }
+});
+
+/**
+ * DELETE /api/admin/leaderboard/:entryId
+ * Platform Owner / Admin 1-click delete score from leaderboard.
+ */
+adminRouter.delete('/leaderboard/:entryId', async (req: Request, res: Response) => {
+  try {
+    const { entryId } = req.params;
+    if (!entryId) {
+      return res.status(400).json({ error: 'Missing entryId' });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('game_scores')
+      .delete()
+      .eq('id', entryId);
+
+    if (error) {
+      console.error('[admin/delete-score] Error deleting score:', error);
+      return res.status(500).json({ error: 'Failed to delete leaderboard score' });
+    }
+
+    // Invalidate in-memory leaderboard caches across all games
+    leaderboardCache.clear();
+
+    const adminEmail = req.user?.email || 'admin';
+    await logAdminAction(adminEmail, 'DELETE_LEADERBOARD_SCORE', entryId, { deletedId: entryId });
+
+    return res.json({ success: true, message: 'Score deleted successfully', deletedId: entryId });
+  } catch (err: any) {
+    console.error('[admin/delete-score] Unexpected error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
