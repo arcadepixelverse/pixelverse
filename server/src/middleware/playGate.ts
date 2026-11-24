@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 
 export const PLAY_LIMIT = 10;
+export const VIP_PLAY_LIMIT = 25;
 export const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 export const MIN_PLAY_SESSION_AGE_MS = 2000; // reject score submissions faster than any legitimate round
 
@@ -169,7 +170,7 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
       // 1. Fetch current user profile
       const { data: profile, error } = await supabaseAdmin
         .from('profiles')
-        .select('id, total_plays, daily_plays, last_played_at, is_banned')
+        .select('id, total_plays, daily_plays, last_played_at, is_banned, is_vip')
         .eq('id', userId)
         .maybeSingle();
 
@@ -186,9 +187,11 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
       const isNewDay = lastPlayedDateStr !== todayStr;
       const currentDailyPlays = isNewDay ? 0 : (profile?.daily_plays ?? 0);
       const currentTotalPlays = profile?.total_plays ?? 0;
+      const isVip = profile?.is_vip === true;
+      const dailyLimit = isVip ? VIP_PLAY_LIMIT : PLAY_LIMIT;
 
       // 2. Daily limit check: if >= 10, block with 429
-      if (currentDailyPlays >= PLAY_LIMIT) {
+      if (currentDailyPlays >= dailyLimit) {
         console.warn(`[playGate] User ${userId} reached daily play limit: ${currentDailyPlays}/${PLAY_LIMIT}`);
         return res.status(429).json({
           error: 'PLAY_LIMIT_REACHED',
@@ -196,7 +199,8 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
           daily_plays: currentDailyPlays,
           total_plays: currentTotalPlays,
           remainingPlays: 0,
-          max_plays: PLAY_LIMIT,
+          max_plays: dailyLimit,
+          isVip,
         });
       }
 
@@ -245,7 +249,7 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
         consumed: false,
       });
 
-      const remaining = Math.max(0, PLAY_LIMIT - nextDaily);
+      const remaining = Math.max(0, dailyLimit - nextDaily);
 
       // Attach session info to req for downstream route handlers
       (req as any).playSession = {
@@ -255,7 +259,7 @@ export async function playGate(req: Request, res: Response, next: NextFunction) 
         remainingPlays: remaining,
       };
 
-      console.log(`[playGate] Issued playSession ${sessionId} for user ${userId} on ${gameId} (${nextDaily}/${PLAY_LIMIT})`);
+      console.log(`[playGate] Issued playSession ${sessionId} for user ${userId} on ${gameId} (${nextDaily}/${dailyLimit})`);
       return next();
     } catch (err: any) {
       console.error('[playGate] Exception in playGate:', err);

@@ -9,17 +9,47 @@ import { AdminGuard } from './components/AdminGuard'
 
 // Route-level code splitting: game pages load on demand so the entry bundle
 // stays lean. Dashboard/Login/Signup/NotFound remain eager for first paint.
-const HigherLower = React.lazy(() => import('./pages/HigherLower'))
-const Jailbreak = React.lazy(() => import('./pages/Jailbreak'))
-const MindReader = React.lazy(() => import('./pages/MindReader'))
-const TuringTest = React.lazy(() => import('./pages/TuringTest'))
-const SurvivalProtocol = React.lazy(() => import('./pages/SurvivalProtocol'))
-const Vault = React.lazy(() => import('./pages/Vault'))
-const Wingman = React.lazy(() => import('./pages/Wingman'))
-const CyberSprint = React.lazy(() => import('./pages/CyberSprint'))
-const SignalSync = React.lazy(() => import('./pages/SignalSync'))
-const Overclock = React.lazy(() => import('./pages/Overclock'))
-const AdminConsole = React.lazy(() => import('./pages/AdminConsole'))
+
+/**
+ * React.lazy wrapper that survives stale-chunk failures after a deploy.
+ * If the browser requests a chunk hash that no longer exists on the CDN,
+ * the dynamic import rejects — we reload the page exactly once (guarded by
+ * sessionStorage) so the user gets the fresh index.html instead of a crash.
+ */
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return React.lazy(async () => {
+    try {
+      return await factory()
+    } catch (err: any) {
+      const isChunkError =
+        /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i.test(
+          String(err?.message || err)
+        )
+      if (isChunkError && typeof window !== 'undefined') {
+        const KEY = 'pv-chunk-reload'
+        if (!sessionStorage.getItem(KEY)) {
+          sessionStorage.setItem(KEY, '1')
+          window.location.reload()
+        }
+      }
+      throw err
+    }
+  })
+}
+
+const HigherLower = lazyWithRetry(() => import('./pages/HigherLower'))
+const Jailbreak = lazyWithRetry(() => import('./pages/Jailbreak'))
+const MindReader = lazyWithRetry(() => import('./pages/MindReader'))
+const TuringTest = lazyWithRetry(() => import('./pages/TuringTest'))
+const SurvivalProtocol = lazyWithRetry(() => import('./pages/SurvivalProtocol'))
+const Vault = lazyWithRetry(() => import('./pages/Vault'))
+const Wingman = lazyWithRetry(() => import('./pages/Wingman'))
+const CyberSprint = lazyWithRetry(() => import('./pages/CyberSprint'))
+const SignalSync = lazyWithRetry(() => import('./pages/SignalSync'))
+const Overclock = lazyWithRetry(() => import('./pages/Overclock'))
+const AdminConsole = lazyWithRetry(() => import('./pages/AdminConsole'))
 
 /** Hacker-terminal loader shown while a lazy route chunk is fetching. */
 function ModuleLoader() {

@@ -154,7 +154,7 @@ app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth'
         .maybeSingle(),
       supabaseAdmin
         .from('profiles')
-        .select('total_plays, daily_plays, last_played_at, is_banned')
+        .select('total_plays, daily_plays, last_played_at, is_banned, is_vip')
         .eq('id', userId)
         .maybeSingle(),
     ]);
@@ -197,6 +197,8 @@ app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth'
       daily_plays: effectiveDailyPlays,
       total_plays: profileRes.data?.total_plays ?? 0,
       is_banned: profileRes.data?.is_banned ?? false,
+      isVip: profileRes.data?.is_vip === true,
+      dailyLimit: profileRes.data?.is_vip === true ? 25 : 10,
     });
   } catch (err: any) {
     console.error('[auth/me] Unexpected error:', err);

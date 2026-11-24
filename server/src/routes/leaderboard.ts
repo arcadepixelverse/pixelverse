@@ -10,6 +10,7 @@ export interface LeaderboardEntry {
   rank: number;
   email_prefix: string;
   score: number;
+  is_vip?: boolean;
 }
 
 interface CachedLeaderboard {
@@ -64,6 +65,17 @@ leaderboardRouter.get(
         return res.status(500).json({ error: 'failed_to_fetch_leaderboard' });
       }
 
+      // Fetch VIP flags for ranked users (single batched query)
+      const rankedIds = (data || []).map((r: any) => r.user_id).filter(Boolean);
+      const vipMap = new Map<string, boolean>();
+      if (rankedIds.length > 0) {
+        const { data: profs } = await supabaseAdmin
+          .from('profiles')
+          .select('id, is_vip')
+          .in('id', rankedIds);
+        (profs || []).forEach((p: any) => vipMap.set(p.id, p.is_vip === true));
+      }
+
       // Format top scores with email prefix
       const entries: LeaderboardEntry[] = await Promise.all(
         (data || []).map(async (row, index) => {
@@ -93,6 +105,7 @@ leaderboardRouter.get(
             rank: index + 1,
             email_prefix: emailPrefix,
             score: Number(row.score) || 0,
+            is_vip: vipMap.get(userId) === true,
           };
         })
       );

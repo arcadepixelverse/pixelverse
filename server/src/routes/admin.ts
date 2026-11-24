@@ -690,6 +690,38 @@ adminRouter.post('/live-ping', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/admin/users/:userId/vip
+ * Toggles owner-granted VIP status (is_vip) on a profile. Zero caching.
+ */
+adminRouter.post('/users/:userId/vip', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { isVip } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'Missing userId' });
+    if (typeof isVip !== 'boolean') {
+      return res.status(400).json({ error: 'Missing or invalid isVip boolean' });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('profiles')
+      .upsert({ id: userId, is_vip: isVip }, { onConflict: 'id' });
+
+    if (error) {
+      console.error('[admin/vip] Error updating is_vip:', error);
+      return res.status(500).json({ error: 'Failed to update VIP status' });
+    }
+
+    const adminEmail = req.user?.email || 'admin';
+    await logAdminAction(adminEmail, isVip ? 'GRANT_VIP' : 'REVOKE_VIP', userId, { is_vip: isVip });
+
+    return res.json({ success: true, userId, is_vip: isVip });
+  } catch (err: any) {
+    console.error('[admin/vip] Error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/admin/audit-logs
  * Retrieves immutable audit logs.
  */

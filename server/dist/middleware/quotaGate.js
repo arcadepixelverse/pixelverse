@@ -8,7 +8,20 @@ const quotaGate = async (req, res, next) => {
         if (!userId) {
             return res.status(401).json({ error: 'unauthorized' });
         }
-        const limit = 10;
+        // VIP members get 2.5x daily AI-call headroom (25 orbs vs 10 free-tier orbs)
+        let limit = 20;
+        try {
+            const { data: prof } = await supabase_1.supabaseAdmin
+                .from('profiles')
+                .select('is_vip')
+                .eq('id', userId)
+                .maybeSingle();
+            if (prof?.is_vip === true)
+                limit = 50;
+        }
+        catch {
+            // fall back to free-tier limit on lookup failure
+        }
         // Call Supabase RPC check_and_increment_usage with authenticated user ID
         const { data, error } = await supabase_1.supabaseAdmin.rpc('check_and_increment_usage', {
             p_user_id: userId,
