@@ -171,7 +171,29 @@ body {
 .neon-red     { --card-glow-color: rgba(255, 69, 58, 0.45);  --card-glow-shadow: rgba(255, 69, 58, 0.15); }
 .neon-blue    { --card-glow-color: rgba(10, 132, 255, 0.4);  --card-glow-shadow: rgba(10, 132, 255, 0.12); }
 
-/* ── Scanline overlay ──────────────────────────────────────────────────────── */
+/* ── Ambient cyber-grid background ─────────────────────────────────────────── */
+.cyber-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(0, 245, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 245, 255, 0.055) 1px, transparent 1px);
+  background-size: 48px 48px;
+  /* Fade the grid toward the edges so it stays ambient and never competes with text */
+  -webkit-mask-image: radial-gradient(ellipse 85% 65% at 50% 38%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(ellipse 85% 65% at 50% 38%, #000 0%, transparent 100%);
+  opacity: 0.55;
+  animation: grid-drift 26s linear infinite;
+}
+
+@keyframes grid-drift {
+  from { background-position: 0 0; }
+  to   { background-position: 0 48px; }
+}
+
+/* ── Scanline overlay (ultra-faint CRT) ────────────────────────────────────── */
 .scanlines {
   position: fixed;
   inset: 0;
@@ -181,9 +203,32 @@ body {
     0deg,
     transparent,
     transparent 2px,
-    rgba(0, 0, 0, 0.03) 2px,
-    rgba(0, 0, 0, 0.03) 4px
+    rgba(0, 0, 0, 0.025) 2px,
+    rgba(0, 0, 0, 0.025) 4px
   );
+}
+
+/* ── Accessibility: honour reduced-motion preferences ──────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .cyber-grid,
+  .mesh-bg::before,
+  .mesh-bg::after,
+  .mesh-orb-3,
+  .neon-title {
+    animation: none !important;
+  }
 }
 
 /* ── Subtitle accent line ──────────────────────────────────────────────────── */

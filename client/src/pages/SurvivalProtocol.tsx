@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
+import { OfflineOverlay } from '../components/OfflineOverlay'
+import { useAuth } from '../context/AuthContext'
 
 export interface SurvivalGameData {
   scenario: string
@@ -85,8 +87,22 @@ const FALLBACK_SCENARIOS: SurvivalGameData[] = [
 ]
 
 export function SurvivalProtocol() {
+  const { syncPlaySession } = useAuth()
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
   const [gameState, setGameState] = useState<'loading' | 'playing' | 'judging' | 'reveal'>('loading')
   const [gameData, setGameData] = useState<SurvivalGameData | null>(null)
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.survival === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
   const [userInput, setUserInput] = useState<string[]>([])
   const [timeLeft, setTimeLeft] = useState<number>(60)
   const [timerActive, setTimerActive] = useState<boolean>(false)
@@ -217,6 +233,15 @@ export function SurvivalProtocol() {
         headers: { 'Content-Type': 'application/json' },
       })
 
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          setIsGameDisabled(true)
+          setGameState('reveal')
+          return
+        }
+      }
+
       if (!res.ok) {
         const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
         if (errMsg === SERVER_OVERLOAD_MESSAGE) {
@@ -226,6 +251,9 @@ export function SurvivalProtocol() {
       }
 
       const data = await res.json()
+      if (data?.playSession) {
+        syncPlaySession(data)
+      }
       if (data && typeof data.scenario === 'string' && data.scenario.trim()) {
         const mode = data.mode === 'mcq' ? 'mcq' : 'typing'
         let required_count = Number(data.required_count)
@@ -336,6 +364,15 @@ export function SurvivalProtocol() {
     gameData?.mode === 'typing'
       ? userInput.length === gameData.required_count && userInput.every((i) => i.trim() !== '')
       : userInput.length === (gameData?.required_count || 1)
+
+  if (isGameDisabled) {
+    return (
+      <OfflineOverlay
+        title="SURVIVAL PROTOCOL // OFFLINE"
+        message="The Survival Protocol subsystem has been temporarily suspended by an administrator."
+      />
+    )
+  }
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col text-white font-sans px-4 py-4 md:px-8 md:py-6 max-w-4xl mx-auto">

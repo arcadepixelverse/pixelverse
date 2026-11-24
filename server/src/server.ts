@@ -8,8 +8,30 @@ import { gamesRouter } from './routes/games';
 import { leaderboardRouter } from './routes/leaderboard';
 import { adminRouter } from './routes/admin';
 import { requireAdmin } from './middleware/requireAdmin';
+import { getGameStatus, getMaintenanceMode } from './lib/gameStatus';
+import { rateLimit } from './middleware/rateLimit';
+import { abuseRateLimit } from './middleware/rateLimit';
 
 dotenv.config();
+
+export const serverTelemetry = {
+  bootTime: Date.now(),
+  totalRequests: 0,
+  endpointCounts: {
+    games: 0,
+    leaderboard: 0,
+    admin: 0,
+    auth: 0,
+    status: 0,
+    other: 0,
+  },
+  aiCallCount: 0,
+  rateLimit429Count: 0,
+  error4xxCount: 0,
+  error5xxCount: 0,
+  totalLatencyMs: 0,
+  latencyCount: 0,
+};
 
 const app = express();
 app.set('trust proxy', 1);
@@ -40,11 +62,44 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Bot/spam throttle — skips /api/admin/* so the overlord console stays unblocked
+app.use(abuseRateLimit);
+
 // Global no-cache headers (prevents proxy, CDN, and browser caching)
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
+  next();
+});
+
+// Telemetry & metrics middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  serverTelemetry.totalRequests++;
+
+  const path = req.path || '';
+  if (path.startsWith('/api/games')) serverTelemetry.endpointCounts.games++;
+  else if (path.startsWith('/api/leaderboard')) serverTelemetry.endpointCounts.leaderboard++;
+  else if (path.startsWith('/api/admin')) serverTelemetry.endpointCounts.admin++;
+  else if (path.startsWith('/api/auth')) serverTelemetry.endpointCounts.auth++;
+  else if (path.startsWith('/api/status')) serverTelemetry.endpointCounts.status++;
+  else serverTelemetry.endpointCounts.other++;
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    serverTelemetry.totalLatencyMs += duration;
+    serverTelemetry.latencyCount++;
+
+    if (res.statusCode === 429) {
+      serverTelemetry.rateLimit429Count++;
+    } else if (res.statusCode >= 500) {
+      serverTelemetry.error5xxCount++;
+    } else if (res.statusCode >= 400) {
+      serverTelemetry.error4xxCount++;
+    }
+  });
+
   next();
 });
 
@@ -64,11 +119,30 @@ app.get('/api', (_req: Request, res: Response) => {
   });
 });
 
-/** Authenticated User Profile, Daily Usage & Play Count */
-app.get('/api/auth/me', requireAuth, async (req: Request, res: Response) => {
+/** Public live system status for dashboard and client state */
+app.get('/api/status', async (_req: Request, res: Response) => {
+  try {
+    const [maintenance_mode, gameStatus] = await Promise.all([
+      getMaintenanceMode(),
+      getGameStatus(),
+    ]);
+
+    return res.json({
+      maintenance_mode,
+      gameStatus,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.warn('[status] Failed to fetch system status:', err);
+    return res.status(500).json({ error: 'failed_to_fetch_status' });
+  }
+});
+
+/** Authenticated User Profile, Daily Usage, Play Count & Admin Flag */
+app.get('/api/auth/me', rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth' }), requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = req.user!.id;
-    const email = req.user!.email;
+    const email = req.user!.email || '';
     const today = new Date().toISOString().split('T')[0];
 
     const [dailyRes, profileRes] = await Promise.all([
@@ -80,7 +154,7 @@ app.get('/api/auth/me', requireAuth, async (req: Request, res: Response) => {
         .maybeSingle(),
       supabaseAdmin
         .from('profiles')
-        .select('total_plays, is_banned')
+        .select('total_plays, daily_plays, last_played_at, is_banned')
         .eq('id', userId)
         .maybeSingle(),
     ]);
@@ -92,10 +166,35 @@ app.get('/api/auth/me', requireAuth, async (req: Request, res: Response) => {
       console.error('[auth/me] Error querying profiles:', profileRes.error);
     }
 
+    const rawAdminEnv = process.env.ADMIN_EMAIL || '';
+    const adminEmailsFromEnv = rawAdminEnv
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    const DEFAULT_ADMIN_EMAILS = [
+      'pritisinghmgs@gmail.com',
+      'arcade.pixelverse@gmail.com',
+    ];
+    const userEmail = email.trim().toLowerCase();
+    const isAdmin =
+      adminEmailsFromEnv.includes(userEmail) ||
+      DEFAULT_ADMIN_EMAILS.includes(userEmail);
+
+    // Mirror playGate's UTC calendar-day rollover so the client never sees a
+    // stale daily_plays count carried over from a previous UTC day.
+    const lastPlayedDateStr = profileRes.data?.last_played_at
+      ? new Date(profileRes.data.last_played_at).toISOString().split('T')[0]
+      : null;
+    const effectiveDailyPlays = lastPlayedDateStr === today
+      ? (profileRes.data?.daily_plays ?? 0)
+      : 0;
+
     return res.json({
       id: userId,
       email,
+      isAdmin,
       todayUsage: dailyRes.data?.ai_calls_count || 0,
+      daily_plays: effectiveDailyPlays,
       total_plays: profileRes.data?.total_plays ?? 0,
       is_banned: profileRes.data?.is_banned ?? false,
     });
@@ -113,8 +212,8 @@ app.post('/api/test-quota', requireAuth, quotaGate, (_req: Request, res: Respons
 /** Games routes (Jailbreak, Higher-Lower, etc.) */
 app.use('/api/games', gamesRouter);
 
-/** Leaderboards */
-app.use('/api/leaderboard', leaderboardRouter);
+/** Leaderboards (rate-limited; admin routes are intentionally exempt) */
+app.use('/api/leaderboard', rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'leaderboard' }), leaderboardRouter);
 
 /** Admin Console (Overlord) */
 app.use('/api/admin', requireAuth, requireAdmin, adminRouter);

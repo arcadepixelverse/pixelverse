@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
+import { OfflineOverlay } from '../components/OfflineOverlay'
+import { useAuth } from '../context/AuthContext'
 
 export type WingmanMode = 'roast' | 'convo'
 export type WingmanState = 'idle' | 'loading' | 'reveal'
@@ -93,11 +95,25 @@ function TypewriterText({ text, speed = 16 }: { text: string; speed?: number }) 
 }
 
 export function Wingman() {
+  const { syncPlaySession } = useAuth()
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
   const [mode, setMode] = useState<WingmanMode>('roast')
   const [input, setInput] = useState('')
   const [result, setResult] = useState('')
   const [gameState, setGameState] = useState<WingmanState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.wingman === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const theme = THEMES[mode]
 
@@ -126,6 +142,15 @@ export function Wingman() {
         body: JSON.stringify({ mode, input: trimmed }),
       })
 
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          setIsGameDisabled(true)
+          setGameState('idle')
+          return
+        }
+      }
+
       if (!res.ok) {
         const errMsg = await getApiErrorMessage(res, `Server returned status ${res.status}`)
         if (errMsg === SERVER_OVERLOAD_MESSAGE) {
@@ -137,6 +162,9 @@ export function Wingman() {
       }
 
       const data = await res.json()
+      if (data?.playSession) {
+        syncPlaySession(data)
+      }
       if (data && typeof data.output === 'string') {
         setResult(data.output.trim())
         setGameState('reveal')
@@ -168,6 +196,15 @@ export function Wingman() {
     setInput('')
     setResult('')
     setErrorMsg('')
+  }
+
+  if (isGameDisabled) {
+    return (
+      <OfflineOverlay
+        title="WINGMAN // OFFLINE"
+        message="The Wingman humor and charisma engine has been temporarily suspended by an administrator."
+      />
+    )
   }
 
   return (

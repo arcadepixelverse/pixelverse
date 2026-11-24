@@ -2,26 +2,37 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { quotaGate } from '../middleware/quotaGate';
 import { requireAuth } from '../middleware/requireAuth';
 import { playGate } from '../middleware/playGate';
+import { maintenanceGate } from '../middleware/maintenanceGate';
+import { rateLimit } from '../middleware/rateLimit';
 import { supabaseAdmin } from '../lib/supabase';
 import { getGameStatus } from '../lib/gameStatus';
 import {
   generateJailbreakRole,
   generateJailbreakTurn,
   generateHigherLowerQuestions,
-  generateTuringTestRounds,
   generateTuringRawBatch,
   formatAndShuffleRounds,
   TuringDifficulty,
-  generateSurvivalScenario,
   generateSurvivalScenariosBatch,
   judgeSurvivalAttempt,
-  SurvivalScenarioResult,
   generateVaultResponse,
   generateWingmanResponse,
-  generateAIText,
 } from '../lib/gemini';
 
 export const gamesRouter = Router();
+
+// Universal Maintenance Gate
+gamesRouter.use(maintenanceGate);
+
+// Rate limit game-start endpoints against bot spam (per-IP fixed window).
+// Mounted before the kill-switch so floods are rejected before any DB work.
+const startRateLimiter = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'game-start' });
+gamesRouter.use((req: Request, res: Response, next: NextFunction) => {
+  if (/\/start\/?$/i.test(req.path || '')) {
+    return startRateLimiter(req, res, next);
+  }
+  return next();
+});
 
 function resolveGameKey(path: string): string | null {
   const normalized = path.toLowerCase();
@@ -89,7 +100,7 @@ function handleGameError(res: Response, routeName: string, err: any, defaultMsg:
   }
   return res.status(500).json({
     error: 'INTERNAL_SERVER_ERROR',
-    message: err?.message || defaultMsg,
+    message: defaultMsg,
   });
 }
 
@@ -107,8 +118,8 @@ gamesRouter.post(
   ['/jailbreak/start', '/api/games/jailbreak/start'],
   checkGameStatus('jailbreak'),
   requireAuth,
-  playGate,
   quotaGate,
+  playGate,
   async (req: Request, res: Response) => {
     try {
       const userId = req.user!.id;
@@ -147,17 +158,22 @@ gamesRouter.post(
         console.error('[jailbreak/start] Supabase insert error:', error);
         return res.status(500).json({
           error: 'DATABASE_ERROR',
-          message: error.message || 'Failed to save jailbreak session.',
+          message: 'Failed to save jailbreak session.',
         });
       }
 
       const gameId = data?.id || data?.game_id;
+
+      if ((req as any).playSession?.playSessionId) {
+        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      }
 
       return res.json({
         gameId,
         secret_role: secret.role,
         initial_ai_message: secret.initial_message,
         difficulty,
+        playSessionId: (req as any).playSession?.playSessionId,
       });
     } catch (err: any) {
       return handleGameError(res, 'jailbreak/start', err, 'Failed to start jailbreak game.');
@@ -197,6 +213,14 @@ gamesRouter.post(
 
       if (fetchError || !session) {
         console.error('[jailbreak/turn] Session lookup error:', fetchError);
+        return res.status(404).json({
+          error: 'SESSION_NOT_FOUND',
+          message: 'Jailbreak session not found.',
+        });
+      }
+
+      // Ownership check: sessions are private to the user who created them
+      if (session.user_id !== req.user!.id) {
         return res.status(404).json({
           error: 'SESSION_NOT_FOUND',
           message: 'Jailbreak session not found.',
@@ -324,7 +348,7 @@ gamesRouter.post(
  * Step 3: Immediately update those 10 rows to set last_used_at = now() (so they go to the back of the line).
  * Step 4: Return the 10 questions to the frontend.
  */
-const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
+const handleHigherLowerGenerate = async (req: Request, res: Response) => {
   try {
     // Step 1: Fetch 10 questions from Supabase hl_questions ordered by last_used_at ASC limit 10
     let { data: questions, error: queryError } = await supabaseAdmin
@@ -405,8 +429,14 @@ const handleHigherLowerGenerate = async (_req: Request, res: Response) => {
       explanation: q.explanation,
     }));
 
+    if ((req as any).playSession?.playSessionId) {
+      res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+    }
     return res.json(formatted);
   } catch (err: any) {
+    if ((req as any).playSession?.playSessionId) {
+      res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+    }
     if (err?.message === 'ALL_AI_PROVIDERS_FAILED') {
       return handleGameError(res, 'higher-lower/generate', err, 'Failed to generate questions.');
     }
@@ -424,16 +454,16 @@ gamesRouter.post(
   ['/higher-lower/generate', '/higher-lower/start', '/api/games/higher-lower/generate', '/api/games/higher-lower/start'],
   checkGameStatus('higher_lower'),
   requireAuth,
-  playGate,
   quotaGate,
+  playGate,
   handleHigherLowerGenerate
 );
 gamesRouter.get(
   ['/higher-lower/generate', '/higher-lower/start', '/api/games/higher-lower/generate', '/api/games/higher-lower/start'],
   checkGameStatus('higher_lower'),
   requireAuth,
-  playGate,
   quotaGate,
+  playGate,
   handleHigherLowerGenerate
 );
 
@@ -448,8 +478,8 @@ gamesRouter.post(
   ['/mind-reader/start', '/api/games/mind-reader/start'],
   checkGameStatus('mind_reader'),
   requireAuth,
-  playGate,
   quotaGate,
+  playGate,
   async (req: Request, res: Response) => {
     try {
       const userId = req.user!.id;
@@ -480,12 +510,17 @@ gamesRouter.post(
         console.error('[mind-reader/start] Supabase insert error:', error);
         return res.status(500).json({
           error: 'DATABASE_ERROR',
-          message: error?.message || 'Failed to initialize Mind Reader game session.',
+          message: 'Failed to initialize Mind Reader game session.',
         });
+      }
+
+      if ((req as any).playSession?.playSessionId) {
+        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
       }
 
       return res.json({
         gameId: data.id,
+        playSessionId: (req as any).playSession?.playSessionId,
       });
     } catch (err: any) {
       return handleGameError(res, 'mind-reader/start', err, 'Failed to start Mind Reader game.');
@@ -525,6 +560,14 @@ gamesRouter.post(
 
       if (fetchError || !session) {
         console.error('[mind-reader/ask] Session lookup error:', fetchError);
+        return res.status(404).json({
+          error: 'SESSION_NOT_FOUND',
+          message: 'Mind Reader session not found.',
+        });
+      }
+
+      // Ownership check: sessions are private to the user who created them
+      if (session.user_id !== req.user!.id) {
         return res.status(404).json({
           error: 'SESSION_NOT_FOUND',
           message: 'Mind Reader session not found.',
@@ -652,6 +695,7 @@ gamesRouter.post(
  */
 gamesRouter.post(
   ['/mind-reader/finish', '/api/games/mind-reader/finish'],
+  requireAuth,
   async (req: Request, res: Response) => {
     try {
       const { gameId, didWin } = req.body;
@@ -660,6 +704,27 @@ gamesRouter.post(
         return res.status(400).json({
           error: 'INVALID_REQUEST',
           message: 'gameId is required.',
+        });
+      }
+
+      // Ownership check: fetch the session and verify it belongs to the caller
+      const { data: existing, error: fetchError } = await supabaseAdmin
+        .from('mind_reader_games')
+        .select('id, user_id')
+        .eq('id', gameId)
+        .maybeSingle();
+
+      if (fetchError || !existing) {
+        return res.status(404).json({
+          error: 'SESSION_NOT_FOUND',
+          message: 'Mind Reader session not found.',
+        });
+      }
+
+      if (existing.user_id !== req.user!.id) {
+        return res.status(404).json({
+          error: 'SESSION_NOT_FOUND',
+          message: 'Mind Reader session not found.',
         });
       }
 
@@ -676,7 +741,7 @@ gamesRouter.post(
         console.error('[mind-reader/finish] Supabase update error:', error);
         return res.status(500).json({
           error: 'DATABASE_ERROR',
-          message: error.message || 'Failed to update Mind Reader status.',
+          message: 'Failed to update Mind Reader status.',
         });
       }
 
@@ -689,7 +754,7 @@ gamesRouter.post(
       console.error('[mind-reader/finish] Error:', err);
       return res.status(500).json({
         error: 'INTERNAL_SERVER_ERROR',
-        message: err.message || 'Failed to finish Mind Reader game.',
+        message: 'Failed to finish Mind Reader game.',
       });
     }
   }
@@ -709,8 +774,8 @@ gamesRouter.post(
   ['/turing-test/generate', '/turing-test/start', '/api/games/turing-test/generate', '/api/games/turing-test/start'],
   checkGameStatus('turing_test'),
   requireAuth,
-  playGate,
   quotaGate,
+  playGate,
   async (req: Request, res: Response) => {
     try {
       const rawDifficulty = req.body?.difficulty;
@@ -786,8 +851,14 @@ gamesRouter.post(
 
       // Step 4: Shuffle options and return formatted rounds
       const rounds = formatAndShuffleRounds(questions);
+      if ((req as any).playSession?.playSessionId) {
+        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      }
       return res.json(rounds);
     } catch (err: any) {
+      if ((req as any).playSession?.playSessionId) {
+        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      }
       return handleGameError(res, 'turing-test/generate', err, 'Failed to generate Turing Test rounds.');
     }
   }
@@ -806,9 +877,9 @@ gamesRouter.post(
   ['/survival/start', '/api/games/survival/start'],
   checkGameStatus('survival'),
   requireAuth,
-  playGate,
   quotaGate,
-  async (_req: Request, res: Response) => {
+  playGate,
+  async (req: Request, res: Response) => {
     try {
       // Step 1: Query Supabase for 1 scenario from survival_scenarios ordered by last_used_at ASC limit 1
       let { data: scenarios, error: queryError } = await supabaseAdmin
@@ -877,7 +948,7 @@ gamesRouter.post(
       }
 
       // Step 4: Return formatted scenario data with clues
-      const result: SurvivalScenarioResult = {
+      const result: any = {
         scenario: chosen.scenario,
         mode: chosen.mode === 'mcq' ? 'mcq' : 'typing',
         required_count: Number(chosen.required_count) || 2,
@@ -892,7 +963,12 @@ gamesRouter.post(
           : typeof chosen.clues === 'string'
           ? JSON.parse(chosen.clues)
           : ["a rusty pipe", "a puddle of oil", "a loose ceiling bracket"],
+        playSessionId: (req as any).playSession?.playSessionId,
       };
+
+      if ((req as any).playSession?.playSessionId) {
+        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      }
 
       return res.json(result);
     } catch (err: any) {
@@ -956,7 +1032,6 @@ gamesRouter.post(
   async (req: Request, res: Response) => {
     try {
       const { message, messages, history, overallMode, mode, manualContext, context, imageBase64 } = req.body || {};
-      console.log("Backend received image?", !!imageBase64);
 
       let promptText = typeof message === 'string' ? message : '';
       let rawHistory: Array<{ role: 'user' | 'model' | 'assistant'; text: string }> = Array.isArray(history) ? history : [];
@@ -1009,8 +1084,8 @@ gamesRouter.post(
   ['/wingman/generate', '/wingman/start', '/api/games/wingman/generate', '/api/games/wingman/start'],
   checkGameStatus('wingman'),
   requireAuth,
-  playGate,
   quotaGate,
+  playGate,
   async (req: Request, res: Response) => {
     try {
       const { mode, input } = req.body || {};
@@ -1025,10 +1100,49 @@ gamesRouter.post(
       }
 
       const result = await generateWingmanResponse(safeMode, safeInput);
-      return res.json(result);
+      if ((req as any).playSession?.playSessionId) {
+        res.setHeader('X-Play-Session-Id', (req as any).playSession.playSessionId);
+      }
+      return res.json({
+        ...result,
+        playSessionId: (req as any).playSession?.playSessionId,
+      });
     } catch (err: any) {
       return handleGameError(res, 'wingman/generate', err, 'Failed to generate Wingman response.');
     }
+  }
+);
+
+/**
+ * ── Generic Game Start Gate ───────────────────────────────────────────────────
+ * POST /api/games/:gameId/start
+ * Used by zero-API games (Overclock, Cyber Sprint, Signal Sync) and clients
+ * to verify game kill switch, enforce play limit/mutex, and obtain a playSessionId.
+ */
+gamesRouter.post(
+  '/:gameId/start',
+  requireAuth,
+  (req: Request, res: Response, next: NextFunction) => {
+    const rawId = req.params.gameId || '';
+    const key = resolveGameKey(rawId);
+    if (!key) {
+      return res.status(404).json({ error: 'UNKNOWN_GAME', message: 'Game module not found' });
+    }
+    return checkGameStatus(key)(req, res, next);
+  },
+  playGate,
+  (req: Request, res: Response) => {
+    const session = (req as any).playSession || {};
+    if (session.playSessionId) {
+      res.setHeader('X-Play-Session-Id', session.playSessionId);
+    }
+    return res.json({
+      allowed: true,
+      playSessionId: session.playSessionId,
+      todayUsage: session.todayUsage,
+      totalPlays: session.totalPlays,
+      remainingPlays: session.remainingPlays,
+    });
   }
 );
 

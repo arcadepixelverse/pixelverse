@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
+import { OfflineOverlay } from '../components/OfflineOverlay'
+import { useAuth } from '../context/AuthContext'
 
 export interface TuringTestRound {
   question: string
@@ -193,7 +195,10 @@ const FALLBACK_ROUNDS_BY_DIFFICULTY: Record<DifficultyMode, TuringTestRound[]> =
 }
 
 export function TuringTest() {
+  const { syncPlaySession } = useAuth()
   const [gameState, setGameState] = useState<'level_select' | 'loading' | 'playing' | 'reveal' | 'gameover'>('level_select')
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
+  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
   const [difficulty, setDifficulty] = useState<DifficultyMode>('normal')
   const [rounds, setRounds] = useState<TuringTestRound[]>([])
   const [currentRound, setCurrentRound] = useState<number>(0)
@@ -205,6 +210,18 @@ export function TuringTest() {
   const [isTimedOut, setIsTimedOut] = useState<boolean>(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const hasSubmittedScore = useRef(false)
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.turing_test === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Fetch rounds for chosen difficulty
   const fetchRounds = async (selectedDifficulty: DifficultyMode = difficulty) => {
@@ -227,6 +244,15 @@ export function TuringTest() {
         body: JSON.stringify({ difficulty: selectedDifficulty }),
       })
 
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          setIsGameDisabled(true)
+          setGameState('level_select')
+          return
+        }
+      }
+
       if (!res.ok) {
         const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
         if (errMsg === SERVER_OVERLOAD_MESSAGE) {
@@ -237,9 +263,23 @@ export function TuringTest() {
         throw new Error(errMsg)
       }
 
+      const sessionHeader = res.headers.get('x-play-session-id')
+      if (sessionHeader) {
+        setPlaySessionId(sessionHeader)
+      }
+
       const data = await res.json()
+      if (data?.playSessionId) {
+        setPlaySessionId(data.playSessionId)
+      }
+      if (data?.playSession) {
+        syncPlaySession(data)
+      }
+
       if (Array.isArray(data) && data.length >= 5) {
         setRounds(data.slice(0, 5))
+      } else if (Array.isArray(data?.questions) && data.questions.length >= 5) {
+        setRounds(data.questions.slice(0, 5))
       } else {
         const fallbacks = FALLBACK_ROUNDS_BY_DIFFICULTY[selectedDifficulty] || FALLBACK_ROUNDS_NORMAL
         setRounds(fallbacks)
@@ -288,12 +328,12 @@ export function TuringTest() {
       apiFetch('/api/leaderboard/turing_test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: finalScore, difficulty }),
+        body: JSON.stringify({ score: finalScore, difficulty, playSessionId: playSessionId || undefined }),
       }).catch((err) => {
         console.warn('[TuringTest] Quiet leaderboard submit failed:', err)
       })
     }
-  }, [gameState, score, difficulty])
+  }, [gameState, score, difficulty, playSessionId])
 
   // Handle user selecting an answer card
   const handleSelectAnswer = (option: 'A' | 'B') => {
@@ -365,6 +405,15 @@ export function TuringTest() {
       badgeBg: 'bg-red-500/20 text-red-300 border-red-500/40',
       message: 'Completely bamboozled by silicon. You might genuinely fail the Turing Test yourself.',
     }
+  }
+
+  if (isGameDisabled) {
+    return (
+      <OfflineOverlay
+        title="TURING PROTOCOL // OFFLINE"
+        message="The Turing Test verification subsystem has been temporarily suspended by an administrator."
+      />
+    )
   }
 
   return (

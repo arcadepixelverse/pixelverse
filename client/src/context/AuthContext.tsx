@@ -7,6 +7,7 @@ interface AuthContextType {
   user: User | null
   session: Session | null
   loading: boolean
+  isAdmin: boolean
   accessToken: string | null
   todayUsage: number
   totalPlays: number
@@ -16,7 +17,14 @@ interface AuthContextType {
   refreshUsage: () => Promise<void>
   refreshQuota: () => Promise<void>
   refreshUser: () => Promise<void>
+  syncPlaySession: (data: { todayUsage?: number; totalPlays?: number; remainingPlays?: number }) => void
 }
+
+const KNOWN_ADMINS = [
+  (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase(),
+  'pritisinghmgs@gmail.com',
+  'arcade.pixelverse@gmail.com',
+].filter(Boolean)
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -24,6 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [todayUsage, setTodayUsage] = useState<number>(0)
   const [totalPlays, setTotalPlays] = useState<number>(0)
 
@@ -50,6 +59,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (typeof data.total_plays === 'number') {
           setTotalPlays(data.total_plays)
         }
+        if (typeof data.isAdmin === 'boolean') {
+          setIsAdmin(data.isAdmin)
+        } else if (data.email) {
+          setIsAdmin(KNOWN_ADMINS.includes(data.email.toLowerCase()))
+        }
       }
     } catch (err) {
       console.warn('[AuthContext] Failed to hydrate todayUsage:', err)
@@ -64,6 +78,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isMounted) return
       setSession(session)
       setUser(session?.user ?? null)
+      if (session?.user?.email && KNOWN_ADMINS.includes(session.user.email.toLowerCase())) {
+        setIsAdmin(true)
+      }
       setLoading(false)
       if (session?.access_token) {
         fetchUsage(session.access_token)
@@ -77,12 +94,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isMounted) return
       setSession(currentSession)
       setUser(currentSession?.user ?? null)
+      if (currentSession?.user?.email && KNOWN_ADMINS.includes(currentSession.user.email.toLowerCase())) {
+        setIsAdmin(true)
+      } else if (!currentSession) {
+        setIsAdmin(false)
+      }
       setLoading(false)
       if (currentSession?.access_token) {
         fetchUsage(currentSession.access_token)
       } else {
         setTodayUsage(0)
         setTotalPlays(0)
+        setIsAdmin(false)
       }
     })
 
@@ -112,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
     setSession(null)
     setUser(null)
+    setIsAdmin(false)
     setTodayUsage(0)
     setTotalPlays(0)
   }
@@ -122,6 +146,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const syncPlaySession = (data: { todayUsage?: number; totalPlays?: number; remainingPlays?: number }) => {
+    if (typeof data.todayUsage === 'number') {
+      setTodayUsage(data.todayUsage)
+    }
+    if (typeof data.totalPlays === 'number') {
+      setTotalPlays(data.totalPlays)
+    }
+  }
+
   const accessToken = session?.access_token ?? null
 
   const value = useMemo(
@@ -129,6 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       session,
       loading,
+      isAdmin,
       accessToken,
       todayUsage,
       totalPlays,
@@ -138,8 +172,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshUsage,
       refreshQuota: refreshUsage,
       refreshUser: refreshUsage,
+      syncPlaySession,
     }),
-    [user, session, loading, accessToken, todayUsage, totalPlays]
+    [user, session, loading, isAdmin, accessToken, todayUsage, totalPlays]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

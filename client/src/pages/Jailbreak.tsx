@@ -11,6 +11,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
+import { OfflineOverlay } from '../components/OfflineOverlay'
+import { useAuth } from '../context/AuthContext'
 
 export type DifficultyMode = 'easy' | 'medium' | 'extreme'
 
@@ -21,11 +23,25 @@ export interface ChatMessage {
 }
 
 export function Jailbreak() {
+  const { syncPlaySession } = useAuth()
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
   const [difficulty, setDifficulty] = useState<DifficultyMode | null>(null)
   const [gameId, setGameId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState<string>('')
   const [gameState, setGameState] = useState<'level_select' | 'loading' | 'playing' | 'won' | 'lost'>('level_select')
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.jailbreak === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
   const [secretRole, setSecretRole] = useState<string>('')
   const [unlockedCode, setUnlockedCode] = useState<string | null>(null)
   const [isSending, setIsSending] = useState<boolean>(false)
@@ -69,6 +85,15 @@ export function Jailbreak() {
         body: JSON.stringify({ difficulty: selectedDifficulty }),
       })
 
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          setIsGameDisabled(true)
+          setGameState('level_select')
+          return
+        }
+      }
+
       if (!res.ok) {
         const errMsg = await getApiErrorMessage(res, `Server returned ${res.status}`)
         if (errMsg === SERVER_OVERLOAD_MESSAGE) {
@@ -84,6 +109,9 @@ export function Jailbreak() {
       }
 
       const data = await res.json()
+      if (data?.playSession) {
+        syncPlaySession(data)
+      }
       setGameId(data.gameId || 'mock-game-id')
       setSecretRole(data.secret_role || 'Target Identity Sealed')
       setMessages([
@@ -338,6 +366,15 @@ export function Jailbreak() {
   const handleRequestHint = () => {
     if (isSending || gameState !== 'playing') return
     handleSendMessage(undefined, 'Could you please give me a helpful hint about the secret code?')
+  }
+
+  if (isGameDisabled) {
+    return (
+      <OfflineOverlay
+        title="JAILBREAK PROTOCOL // OFFLINE"
+        message="The Jailbreak subsystem has been temporarily suspended by an administrator."
+      />
+    )
   }
 
   return (

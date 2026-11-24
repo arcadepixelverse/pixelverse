@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
 import { DifficultySelector, type Difficulty, DIFFICULTY_MULTIPLIERS } from '../components/DifficultySelector'
+import { useAuth } from '../context/AuthContext'
 
 export interface Question {
   prompt?: string
@@ -61,7 +62,10 @@ const QUESTION_TIMEOUT: Record<Difficulty, number> = {
 }
 
 export function HigherLower() {
+  const { syncPlaySession } = useAuth()
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
+  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentIndex, setCurrentIndex] = useState<number>(0)
   const [score, setScore] = useState<number>(0)
@@ -75,6 +79,18 @@ export function HigherLower() {
   const hasSubmittedScore = useRef(false)
   const difficultyRef = useRef<Difficulty>(difficulty)
   difficultyRef.current = difficulty
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.higher_lower === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Fetch 10 questions from the backend API with a 4-second safety threshold
   const fetchQuestions = useCallback(async (selectedDiff?: Difficulty) => {
@@ -110,6 +126,17 @@ export function HigherLower() {
         method: 'POST',
       })
 
+      if (response.status === 403) {
+        const errJson = await response.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          clearTimeout(timer)
+          hasHandled = true
+          setIsGameDisabled(true)
+          setGameState('select')
+          return
+        }
+      }
+
       if (!response.ok) {
         const errMsg = await getApiErrorMessage(response, `Server returned HTTP ${response.status}`)
         if (errMsg === SERVER_OVERLOAD_MESSAGE) {
@@ -123,7 +150,18 @@ export function HigherLower() {
         throw new Error(errMsg)
       }
 
+      const sessionHeader = response.headers.get('x-play-session-id')
+      if (sessionHeader) {
+        setPlaySessionId(sessionHeader)
+      }
+
       const data = await response.json()
+      if (data?.playSessionId) {
+        setPlaySessionId(data.playSessionId)
+      }
+      if (data?.playSession) {
+        syncPlaySession(data)
+      }
       const rawList = Array.isArray(data) ? data : data.questions || []
 
       if (!hasHandled && rawList.length > 0) {
@@ -188,12 +226,12 @@ export function HigherLower() {
       apiFetch('/api/leaderboard/higher_lower', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: finalScore, difficulty }),
+        body: JSON.stringify({ score: finalScore, difficulty, playSessionId: playSessionId || undefined }),
       }).catch((err) => {
         console.warn('[HigherLower] Quiet leaderboard submit failed:', err)
       })
     }
-  }, [gameState, score, difficulty])
+  }, [gameState, score, difficulty, playSessionId])
 
   const handleCardClick = (choice: 'A' | 'B') => {
     if (gameState !== 'playing' || selectedCard !== null) return
@@ -243,6 +281,28 @@ export function HigherLower() {
   }
 
   const currentQ = questions[currentIndex]
+
+  if (isGameDisabled) {
+    return (
+      <div className="min-h-screen bg-black text-white font-mono flex items-center justify-center p-6 select-none relative z-20">
+        <div className="max-w-md w-full p-8 rounded-2xl bg-red-950/20 border-2 border-red-500/60 shadow-[0_0_60px_rgba(255,55,95,0.3)] text-center">
+          <div className="text-4xl mb-4">⛔</div>
+          <h2 className="text-xl font-black uppercase text-red-500 tracking-[0.2em] mb-3">
+            MODULE OFFLINE // DISABLED BY ADMIN
+          </h2>
+          <p className="text-xs text-red-200/80 mb-6 uppercase tracking-wider leading-relaxed">
+            THIS ARCADE PROTOCOL HAS BEEN SUSPENDED FOR MAINTENANCE. COME BACK LATER.
+          </p>
+          <Link
+            to="/"
+            className="inline-block px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 transition"
+          >
+            RETURN TO ARCADE
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="relative z-10 min-h-screen flex flex-col text-white font-sans px-4 py-6 md:px-12 md:py-8">

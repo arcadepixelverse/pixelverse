@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence, useMotionValue, useSpring } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/apiClient'
+import { OfflineOverlay } from '../components/OfflineOverlay'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -130,10 +131,23 @@ export function Vault() {
   })
 
   // Interactive UI state
+  const [isGameDisabled, setIsGameDisabled] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [inputVal, setInputVal] = useState('')
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [isTyping, setIsTyping] = useState(false)
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.vault === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -234,8 +248,6 @@ export function Vault() {
       imageBase64: cleanBase64,
     }
 
-    console.log("Sending to Vault API...", payload)
-
     try {
       const res = await apiFetch('/api/games/vault/chat', {
         method: 'POST',
@@ -243,12 +255,20 @@ export function Vault() {
         body: JSON.stringify(payload),
       })
 
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          setIsGameDisabled(true)
+          setIsTyping(false)
+          return
+        }
+      }
+
       if (!res.ok) {
         throw new Error(`Server returned status ${res.status}`)
       }
 
       const data = await res.json()
-      console.log("Received from Vault API:", data)
 
       const aiReply =
         data.reply ||
@@ -296,6 +316,15 @@ export function Vault() {
       setMessages([DEFAULT_WELCOME_MESSAGE])
       localStorage.removeItem('vault_history')
     }
+  }
+
+  if (isGameDisabled) {
+    return (
+      <OfflineOverlay
+        title="THE VAULT // OFFLINE"
+        message="The Vault confidential subsystem has been temporarily suspended by an administrator."
+      />
+    )
   }
 
   return (

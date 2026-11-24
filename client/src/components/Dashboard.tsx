@@ -4,6 +4,9 @@ import { useNavigate, Link } from 'react-router-dom'
 import { GameCard } from './GameCard'
 import { useAuth } from '../context/AuthContext'
 import { Leaderboard } from './Leaderboard'
+import { SfxToggle } from './SfxToggle'
+import { apiFetch } from '../lib/apiClient'
+import { playClick, playError } from '../lib/soundEngine'
 
 const ADMIN_EMAILS = [
   (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase(),
@@ -13,48 +16,84 @@ const ADMIN_EMAILS = [
 
 // ── Game definitions ─────────────────────────────────────────────────────────
 
-const GAMES = [
+interface GameDef {
+  id: string
+  title: string
+  description: string
+  icon: string
+  neonClass: string
+  iconBg: string
+  href?: string
+  statusBadge?: string
+  disabled?: boolean
+  genre?: string
+  difficulty?: string
+  hotkey?: number
+}
+
+const GAMES: GameDef[] = [
   {
+    id: 'jailbreak',
     title: 'The Jailbreak',
     description: 'Convince the AI to break its own rules. How persuasive are you?',
     icon: '🔓',
     neonClass: 'neon-cyan',
     iconBg: 'rgba(0, 245, 255, 0.12)',
     href: '/games/jailbreak',
+    genre: 'Social',
+    difficulty: 'Medium',
+    hotkey: 1,
   },
   {
+    id: 'higher_lower',
     title: 'Higher or Lower',
     description: "Outsmart the AI at pure number intuition. Can you beat the machine?",
     icon: '📈',
     neonClass: 'neon-green',
     iconBg: 'rgba(48, 209, 88, 0.12)',
     href: '/games/higher-lower',
+    genre: 'Intuition',
+    difficulty: 'Easy',
+    hotkey: 2,
   },
   {
+    id: 'mind_reader',
     title: 'Mind Reader',
     description: "Think of a number between 1 and 1000. Can the AI read your mind?",
     icon: '🧠',
     neonClass: 'neon-purple',
     iconBg: 'rgba(191, 90, 242, 0.12)',
     href: '/games/mind-reader',
+    genre: 'Logic',
+    difficulty: 'Medium',
+    hotkey: 3,
   },
   {
+    id: 'turing_test',
     title: 'The Turing Test',
     description: 'Human or AI? Can you spot the real human in 5 rounds of quirky dilemmas?',
     icon: '🤖',
     neonClass: 'neon-cyan',
     iconBg: 'rgba(0, 245, 255, 0.12)',
     href: '/games/turing-test',
+    genre: 'Deduction',
+    difficulty: 'Hard',
+    hotkey: 4,
   },
   {
+    id: 'survival',
     title: 'Survival Protocol',
     description: 'Bizarre life-or-death scenarios. Use environmental clues and items to survive.',
     icon: '⚡',
     neonClass: 'neon-red',
     iconBg: 'rgba(255, 69, 58, 0.12)',
     href: '/games/survival',
+    genre: 'Survival',
+    difficulty: 'Adaptive',
+    hotkey: 5,
   },
   {
+    id: 'vault',
     title: 'The Vault',
     description: 'An empathetic AI sanctuary for your thoughts. Your secrets are safe here.',
     icon: '🔒',
@@ -62,38 +101,56 @@ const GAMES = [
     iconBg: 'rgba(255, 126, 182, 0.15)',
     statusBadge: 'Coming Soon',
     disabled: true,
+    genre: 'Sanctuary',
+    difficulty: 'Chill',
   },
   {
+    id: 'wingman',
     title: 'The Wingman',
     description: 'Roast your friends or generate the perfect icebreaker.',
     icon: '🕶️',
     neonClass: 'neon-red',
     iconBg: 'rgba(255, 69, 58, 0.12)',
     href: '/games/wingman',
+    genre: 'Social',
+    difficulty: 'Casual',
+    hotkey: 6,
   },
   {
+    id: 'cyber_sprint',
     title: 'Cyber Sprint',
     description: 'Type fast. Survive the grid.',
     icon: '⚡',
     neonClass: 'neon-green',
     iconBg: 'rgba(48, 209, 88, 0.12)',
     href: '/games/cyber-sprint',
+    genre: 'Reflex',
+    difficulty: 'Fast',
+    hotkey: 7,
   },
   {
+    id: 'signal_sync',
     title: 'Signal Sync',
     description: 'Lock into the neural frequency. Hit the resonance zone.',
     icon: '〰️',
     neonClass: 'neon-cyan',
     iconBg: 'rgba(0, 245, 255, 0.12)',
     href: '/games/signal-sync',
+    genre: 'Rhythm',
+    difficulty: 'Medium',
+    hotkey: 8,
   },
   {
+    id: 'overclock',
     title: 'Overclock',
     description: 'Push CPU clock speeds to the limit. Bank points before meltdown.',
     icon: '🔥',
     neonClass: 'neon-red',
     iconBg: 'rgba(255, 69, 58, 0.12)',
     href: '/games/overclock',
+    genre: 'Reflex',
+    difficulty: 'Brutal',
+    hotkey: 9,
   },
 ]
 
@@ -102,6 +159,7 @@ const GAMES = [
 export function Dashboard() {
   const { user, todayUsage, signOut, refreshUsage } = useAuth()
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
+  const [gameStatus, setGameStatus] = useState<Record<string, boolean>>({})
   const navigate = useNavigate()
 
   const isAdmin = Boolean(
@@ -110,7 +168,55 @@ export function Dashboard() {
 
   useEffect(() => {
     refreshUsage()
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.gameStatus) {
+          setGameStatus(data.gameStatus)
+        }
+      })
+      .catch((err) => console.warn('Could not fetch live game status:', err))
   }, [])
+
+  // Remaining AI cycles for the day (used by the energy bar + hotkeys)
+  const remaining = Math.max(0, 10 - todayUsage)
+  const quotaColor = remaining === 0 ? '#FF375F' : remaining <= 3 ? '#FFD60A' : '#00F5FF'
+
+  const launchGame = (game: GameDef) => {
+    const isOffline = gameStatus[game.id] === false
+    if (!game.href || game.disabled || isOffline) {
+      playError()
+      return
+    }
+    playClick()
+    navigate(game.href)
+  }
+
+  // Power-user hotkeys — press 1–9 to launch the matching unlocked cabinet
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      const num = Number(e.key)
+      if (!Number.isInteger(num) || num < 1 || num > 9) return
+      const game = GAMES.find((g) => g.hotkey === num)
+      if (!game) return
+      e.preventDefault()
+      launchGame(game)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameStatus])
 
   const handleSignOut = async () => {
     await signOut()
@@ -120,7 +226,7 @@ export function Dashboard() {
   return (
     <div className="relative z-10 min-h-screen flex flex-col">
       {/* ── Header ── */}
-      <header className="flex items-center justify-between px-6 py-5 md:px-12 flex-wrap gap-4">
+      <header className="flex items-center justify-between px-4 py-5 sm:px-6 md:px-12 flex-wrap gap-3 sm:gap-4">
         <div className="flex items-center gap-2.5">
           {/* Logo pixel grid */}
           <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -132,7 +238,7 @@ export function Dashboard() {
           <span className="text-sm font-bold tracking-[0.2em] uppercase text-white/40">PIXELVERSE</span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
           {/* Overlord Admin button (for admin accounts) */}
           {isAdmin && (
             <Link
@@ -155,27 +261,41 @@ export function Dashboard() {
             <span>LEADERBOARD</span>
           </button>
 
-          {/* Quota indicator */}
+          {/* Daily Quota Energy Bar */}
           <div
-            className="hidden sm:flex items-center gap-2 text-xs font-mono tracking-wider px-3 py-1.5 rounded-full"
+            className="hidden sm:flex items-center gap-2 text-[10px] font-mono tracking-wider px-3 py-1.5 rounded-full"
             style={{
-              background: 'rgba(0, 245, 255, 0.08)',
-              border: '1px solid rgba(0, 245, 255, 0.2)',
-              color: todayUsage >= 10 ? '#FF375F' : 'rgba(0, 245, 255, 0.9)',
+              background: 'rgba(0, 245, 255, 0.07)',
+              border: `1px solid ${quotaColor}55`,
             }}
-            title="Daily AI Call Usage (Resets at midnight UTC)"
+            title={`Daily AI Calls — ${remaining} of 10 cycles left (resets at midnight UTC)`}
           >
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{ background: todayUsage >= 10 ? '#FF375F' : '#00F5FF' }}
-            />
-            <span>QUOTA: {todayUsage}/10</span>
+            <span className="uppercase text-white/40">ENERGY</span>
+            <span className="flex items-center gap-[3px]" aria-hidden="true">
+              {Array.from({ length: 10 }).map((_, i) => {
+                const lit = i < remaining
+                return (
+                  <span
+                    key={i}
+                    className="w-1.5 h-3 rounded-[2px] transition-colors"
+                    style={{
+                      background: lit ? quotaColor : 'rgba(255,255,255,0.08)',
+                      boxShadow: lit ? `0 0 6px ${quotaColor}` : 'none',
+                    }}
+                  />
+                )
+              })}
+            </span>
+            <span style={{ color: quotaColor }}>{remaining} / 10 CYCLES LEFT</span>
           </div>
+
+          {/* Sound effects toggle */}
+          <SfxToggle />
 
           {/* User email */}
           {user?.email && (
             <div
-              className="text-xs font-mono tracking-wide px-3 py-1.5 rounded-full text-white/70 bg-white/5 border border-white/10 max-w-[200px] truncate"
+              className="text-xs font-mono tracking-wide px-3 py-1.5 rounded-full text-white/70 bg-white/5 border border-white/10 min-w-0 max-w-[130px] sm:max-w-[200px] truncate"
               title={user.email}
             >
               {user.email}
@@ -193,7 +313,7 @@ export function Dashboard() {
       </header>
 
       {/* ── Hero ── */}
-      <main className="flex-1 flex flex-col items-center px-6 pt-10 pb-16 md:px-12">
+      <main className="flex-1 flex flex-col items-center px-4 pt-10 pb-16 sm:px-6 md:px-12">
         <motion.div
           className="flex flex-col items-center gap-5 mb-16 text-center"
           initial={{ opacity: 0, y: -24 }}
@@ -213,7 +333,7 @@ export function Dashboard() {
 
           {/* Main title */}
           <h1
-            className="neon-title text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-[-0.02em] leading-none"
+            className="neon-title text-5xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-[-0.02em] leading-none"
           >
             PIXELVERSE
           </h1>
@@ -240,9 +360,18 @@ export function Dashboard() {
 
         {/* ── Game grid ── */}
         <div className="w-full max-w-6xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {GAMES.map((game, i) => (
-            <GameCard key={game.title} {...game} index={i} />
-          ))}
+          {GAMES.map((game, i) => {
+            const isOffline = gameStatus[game.id] === false
+            return (
+              <GameCard
+                key={game.id}
+                {...game}
+                index={i}
+                disabled={game.disabled || isOffline}
+                statusBadge={game.disabled ? 'Coming Soon' : isOffline ? 'OFFLINE' : undefined}
+              />
+            )
+          })}
         </div>
 
         {/* ── Footer note ── */}

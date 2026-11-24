@@ -3,76 +3,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/apiClient'
 import { Leaderboard } from '../components/Leaderboard'
+import { SfxToggle } from '../components/SfxToggle'
 import { useAuth } from '../context/AuthContext'
-
-// Web Audio Synthesizer for Overclock
-function playCpuTone(type: 'boost' | 'bank' | 'meltdown' | 'extract' | 'siren' | 'start') {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-    if (!AudioCtx) return
-    const ctx = new AudioCtx()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-
-    const now = ctx.currentTime
-    if (type === 'boost') {
-      osc.type = 'sawtooth'
-      osc.frequency.setValueAtTime(320, now)
-      osc.frequency.exponentialRampToValueAtTime(880, now + 0.1)
-      gain.gain.setValueAtTime(0.25, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.14)
-      osc.start(now)
-      osc.stop(now + 0.14)
-    } else if (type === 'bank') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(523.25, now) // C5
-      osc.frequency.setValueAtTime(659.25, now + 0.06) // E5
-      osc.frequency.setValueAtTime(1046.5, now + 0.12) // C6
-      gain.gain.setValueAtTime(0.28, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25)
-      osc.start(now)
-      osc.stop(now + 0.25)
-    } else if (type === 'meltdown') {
-      osc.type = 'sawtooth'
-      osc.frequency.setValueAtTime(180, now)
-      osc.frequency.linearRampToValueAtTime(30, now + 0.8)
-      gain.gain.setValueAtTime(0.45, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.8)
-      osc.start(now)
-      osc.stop(now + 0.8)
-    } else if (type === 'extract') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(440, now)
-      osc.frequency.exponentialRampToValueAtTime(1320, now + 0.3)
-      gain.gain.setValueAtTime(0.3, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35)
-      osc.start(now)
-      osc.stop(now + 0.35)
-    } else if (type === 'siren') {
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(750, now)
-      osc.frequency.linearRampToValueAtTime(950, now + 0.12)
-      gain.gain.setValueAtTime(0.15, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16)
-      osc.start(now)
-      osc.stop(now + 0.16)
-    } else if (type === 'start') {
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(330, now)
-      osc.frequency.exponentialRampToValueAtTime(660, now + 0.15)
-      gain.gain.setValueAtTime(0.2, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15)
-      osc.start(now)
-      osc.stop(now + 0.15)
-    }
-  } catch {}
-}
+import { playBoost, playSuccess, playError } from '../lib/soundEngine'
 
 export function Overclock() {
-  const { refreshQuota } = useAuth()
+  const { refreshQuota, syncPlaySession } = useAuth()
   const [gameState, setGameState] = useState<'idle' | 'running' | 'meltdown' | 'extracted'>('idle')
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
+  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
+  const [isStarting, setIsStarting] = useState<boolean>(false)
   const [heat, setHeat] = useState<number>(0) // 0 to 100%
   const [multiplier, setMultiplier] = useState<number>(1.0)
   const [cycleClicks, setCycleClicks] = useState<number>(0)
@@ -82,6 +22,18 @@ export function Overclock() {
   const [recentBankNotice, setRecentBankNotice] = useState<number | null>(null)
   const [leaderboardStatus, setLeaderboardStatus] = useState<string>('')
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false)
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.overclock === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Real-time animation refs to avoid closure stalls
   const animationFrameRef = useRef<number | null>(null)
@@ -104,7 +56,7 @@ export function Overclock() {
       const res = await apiFetch('/api/leaderboard/overclock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: scoreToSubmit }),
+        body: JSON.stringify({ score: scoreToSubmit, playSessionId }),
       })
       if (res.ok) {
         setLeaderboardStatus('✓ Telemetry logged in Global Leaderboard!')
@@ -120,7 +72,7 @@ export function Overclock() {
 
   // Trigger Meltdown
   const triggerMeltdown = useCallback(() => {
-    playCpuTone('meltdown')
+    playError()
     gameStateRef.current = 'meltdown'
     setGameState('meltdown')
 
@@ -141,7 +93,7 @@ export function Overclock() {
   // Safely Extract Banked Points and Conclude Run
   const handleExtract = () => {
     if (gameStateRef.current !== 'running') return
-    playCpuTone('extract')
+    playSuccess()
 
     // Bank any remaining unbanked points first
     const finalTotal = bankedScoreRef.current + unbankedPointsRef.current
@@ -162,27 +114,53 @@ export function Overclock() {
   }
 
   // Start or Reboot Game
-  const startGame = () => {
-    playCpuTone('start')
-    setHeat(0)
-    heatRef.current = 0
-    setMultiplier(1.0)
-    multiplierRef.current = 1.0
-    setCycleClicks(0)
-    cycleClicksRef.current = 0
-    setUnbankedPoints(0)
-    unbankedPointsRef.current = 0
-    setBankedScore(0)
-    bankedScoreRef.current = 0
-    setLastJump(null)
-    setRecentBankNotice(null)
-    setLeaderboardStatus('')
-    setGameState('running')
-    gameStateRef.current = 'running'
+  const startGame = async () => {
+    if (isStarting) return
+    setIsStarting(true)
+    try {
+      const res = await apiFetch('/api/games/overclock/start', { method: 'POST' })
+      if (!res.ok) {
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}))
+          if (errData?.error === 'GAME_DISABLED') {
+            setIsGameDisabled(true)
+            return
+          }
+        }
+        return
+      }
 
-    const now = performance.now()
-    lastTimeRef.current = now
-    lastSirenTimeRef.current = now
+      const data = await res.json()
+      if (data.playSessionId) {
+        setPlaySessionId(data.playSessionId)
+      }
+      syncPlaySession(data)
+
+      playBoost(0)
+      setHeat(0)
+      heatRef.current = 0
+      setMultiplier(1.0)
+      multiplierRef.current = 1.0
+      setCycleClicks(0)
+      cycleClicksRef.current = 0
+      setUnbankedPoints(0)
+      unbankedPointsRef.current = 0
+      setBankedScore(0)
+      bankedScoreRef.current = 0
+      setLastJump(null)
+      setRecentBankNotice(null)
+      setLeaderboardStatus('')
+      setGameState('running')
+      gameStateRef.current = 'running'
+
+      const now = performance.now()
+      lastTimeRef.current = now
+      lastSirenTimeRef.current = now
+    } catch (err) {
+      console.warn('[Overclock] Start error:', err)
+    } finally {
+      setIsStarting(false)
+    }
   }
 
   // Passive Cooling Loop: Slowly decreases heat over time clamped at 0
@@ -210,7 +188,7 @@ export function Overclock() {
 
       // Warning tone at critical heat
       if (heatRef.current >= 80 && currentTime - lastSirenTimeRef.current > 1400) {
-        playCpuTone('siren')
+        playError()
         lastSirenTimeRef.current = currentTime
       }
 
@@ -230,7 +208,7 @@ export function Overclock() {
   // Handle Overclock Surge
   const handleOverclock = () => {
     if (gameStateRef.current !== 'running') return
-    playCpuTone('boost')
+    playBoost(cycleClicksRef.current)
 
     const currentClicks = cycleClicksRef.current + 1
     cycleClicksRef.current = currentClicks
@@ -271,7 +249,7 @@ export function Overclock() {
     const pointsToBank = unbankedPointsRef.current
     if (pointsToBank <= 0) return
 
-    playCpuTone('bank')
+    playSuccess()
 
     const newBanked = bankedScoreRef.current + pointsToBank
     bankedScoreRef.current = newBanked
@@ -292,9 +270,57 @@ export function Overclock() {
     setTimeout(() => setRecentBankNotice(null), 1200)
   }
 
+  // Power-user hotkeys — Space surges, Enter banks, while a round is live
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (gameStateRef.current !== 'running' || e.repeat) return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault()
+        handleOverclock()
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        handleBank()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Clean temperature color (no jitter animations)
   const heatColor =
     heat < 50 ? '#00F5FF' : heat < 75 ? '#30D158' : heat < 90 ? '#FF9F0A' : '#FF375F'
+
+  if (isGameDisabled) {
+    return (
+      <div className="min-h-screen bg-black text-white font-mono flex items-center justify-center p-6 select-none relative z-20">
+        <div className="max-w-md w-full p-8 rounded-2xl bg-red-950/20 border-2 border-red-500/60 shadow-[0_0_60px_rgba(255,55,95,0.3)] text-center">
+          <div className="text-4xl mb-4">⛔</div>
+          <h2 className="text-xl font-black uppercase text-red-500 tracking-[0.2em] mb-3">
+            MODULE OFFLINE // DISABLED BY ADMIN
+          </h2>
+          <p className="text-xs text-red-200/80 mb-6 uppercase tracking-wider leading-relaxed">
+            THIS ARCADE PROTOCOL HAS BEEN SUSPENDED FOR MAINTENANCE. COME BACK LATER.
+          </p>
+          <Link
+            to="/"
+            className="inline-block px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 transition"
+          >
+            RETURN TO ARCADE
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -324,6 +350,8 @@ export function Overclock() {
             <span className="text-white/40 uppercase text-[10px]">SECURED:</span>
             <span className="text-sm tracking-wider font-mono">{bankedScore}</span>
           </div>
+
+          <SfxToggle />
 
           <button
             type="button"
@@ -489,7 +517,12 @@ export function Overclock() {
                 style={{ touchAction: 'manipulation' }}
                 className="w-full py-4 rounded-2xl bg-red-500/25 hover:bg-red-500/35 active:scale-[0.98] border-2 border-red-500 text-red-200 font-black text-base tracking-[0.2em] uppercase shadow-[0_0_30px_rgba(255,55,95,0.4)] transition-all cursor-pointer"
               >
-                OVERCLOCK +SURGE ⚡
+                <span className="flex items-center justify-center gap-2">
+                  OVERCLOCK +SURGE ⚡
+                  <kbd className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-red-400/40 bg-black/40 text-red-200/80 tracking-normal">
+                    [SPACE]
+                  </kbd>
+                </span>
               </button>
 
               <button
@@ -499,7 +532,12 @@ export function Overclock() {
                 style={{ touchAction: 'manipulation' }}
                 className="w-full py-3.5 rounded-2xl bg-emerald-500/20 hover:bg-emerald-500/30 active:scale-[0.98] border border-emerald-500/50 text-emerald-300 font-bold text-sm tracking-widest uppercase transition-all shadow-[0_0_20px_rgba(52,211,153,0.3)] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                BANK DATA (LOCK {unbankedPoints} PTS) 💾
+                <span className="flex items-center justify-center gap-2">
+                  BANK DATA (LOCK {unbankedPoints} PTS) 💾
+                  <kbd className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-emerald-400/40 bg-black/40 text-emerald-200/80 tracking-normal">
+                    [ENTER]
+                  </kbd>
+                </span>
               </button>
 
               <button

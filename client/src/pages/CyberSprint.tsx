@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/apiClient'
 import { Leaderboard } from '../components/Leaderboard'
+import { SfxToggle } from '../components/SfxToggle'
 import { DifficultySelector, type Difficulty, DIFFICULTY_MULTIPLIERS } from '../components/DifficultySelector'
 import { useAuth } from '../context/AuthContext'
+import { playSuccess, playError, playBoost } from '../lib/soundEngine'
 
 // ── 200 Unique Cyberpunk & Technical Dictionary ──────────────────────────────
 const CYBER_DICTIONARY = {
@@ -86,58 +88,29 @@ export function generateComplexWord(baseWord: string, difficulty: Difficulty): s
     .join('')
 }
 
-// Retro Web Audio Synthesizer
+// Retro SFX — routed through the shared PIXELVERSE sound engine
 function playSound(type: 'hit' | 'miss' | 'gameover' | 'start') {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
-    if (!AudioCtx) return
-    const ctx = new AudioCtx()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-
-    const now = ctx.currentTime
-    if (type === 'hit') {
-      osc.type = 'triangle'
-      osc.frequency.setValueAtTime(480, now)
-      osc.frequency.exponentialRampToValueAtTime(960, now + 0.1)
-      gain.gain.setValueAtTime(0.2, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15)
-      osc.start(now)
-      osc.stop(now + 0.15)
-    } else if (type === 'miss') {
-      osc.type = 'sawtooth'
-      osc.frequency.setValueAtTime(160, now)
-      osc.frequency.exponentialRampToValueAtTime(50, now + 0.25)
-      gain.gain.setValueAtTime(0.3, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25)
-      osc.start(now)
-      osc.stop(now + 0.25)
-    } else if (type === 'gameover') {
-      osc.type = 'sawtooth'
-      osc.frequency.setValueAtTime(220, now)
-      osc.frequency.exponentialRampToValueAtTime(35, now + 0.6)
-      gain.gain.setValueAtTime(0.35, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6)
-      osc.start(now)
-      osc.stop(now + 0.6)
-    } else if (type === 'start') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(330, now)
-      osc.frequency.exponentialRampToValueAtTime(660, now + 0.18)
-      gain.gain.setValueAtTime(0.2, now)
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18)
-      osc.start(now)
-      osc.stop(now + 0.18)
-    }
-  } catch {}
+  switch (type) {
+    case 'hit':
+      playSuccess()
+      break
+    case 'miss':
+    case 'gameover':
+      playError()
+      break
+    case 'start':
+      playBoost(0)
+      break
+  }
 }
 
 export function CyberSprint() {
-  const { refreshQuota } = useAuth()
+  const { refreshQuota, syncPlaySession } = useAuth()
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'gameover'>('idle')
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
+  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
+  const [isStarting, setIsStarting] = useState<boolean>(false)
   const [baseScore, setBaseScore] = useState<number>(0)
   const [finalScore, setFinalScore] = useState<number>(0)
   const [lives, setLives] = useState<number>(3)
@@ -150,6 +123,18 @@ export function CyberSprint() {
   const [isGlitching, setIsGlitching] = useState<boolean>(false)
   const [leaderboardStatus, setLeaderboardStatus] = useState<string>('')
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false)
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.cyber_sprint === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const inputRef = useRef<HTMLInputElement | null>(null)
   const animationFrameRef = useRef<number | null>(null)
@@ -179,7 +164,7 @@ export function CyberSprint() {
       const res = await apiFetch('/api/leaderboard/cyber_sprint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff }),
+        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId }),
       })
       if (res.ok) {
         setLeaderboardStatus('✓ Score transmitted to Global Leaderboard!')
@@ -212,37 +197,63 @@ export function CyberSprint() {
   }, [])
 
   // Start or Reboot Game
-  const startGame = () => {
-    playSound('start')
-    setBaseScore(0)
-    baseScoreRef.current = 0
-    setFinalScore(0)
-    setLives(3)
-    livesRef.current = 3
-    wordsRef.current = []
-    setWords([])
-    setInput('')
-    setStreak(0)
-    streakRef.current = 0
-    setMaxStreak(0)
-    maxStreakRef.current = 0
-    setWordsDestroyed(0)
-    setExplosions([])
-    setIsGlitching(false)
-    setLeaderboardStatus('')
-    setGameState('playing')
-    gameStateRef.current = 'playing'
+  const startGame = async () => {
+    if (isStarting) return
+    setIsStarting(true)
+    try {
+      const res = await apiFetch('/api/games/cyber-sprint/start', { method: 'POST' })
+      if (!res.ok) {
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}))
+          if (errData?.error === 'GAME_DISABLED') {
+            setIsGameDisabled(true)
+            return
+          }
+        }
+        return
+      }
 
-    const now = performance.now()
-    lastTimeRef.current = now
-    lastSpawnTimeRef.current = now
+      const data = await res.json()
+      if (data.playSessionId) {
+        setPlaySessionId(data.playSessionId)
+      }
+      syncPlaySession(data)
 
-    // Initial word spawn
-    spawnWord()
+      playSound('start')
+      setBaseScore(0)
+      baseScoreRef.current = 0
+      setFinalScore(0)
+      setLives(3)
+      livesRef.current = 3
+      wordsRef.current = []
+      setWords([])
+      setInput('')
+      setStreak(0)
+      streakRef.current = 0
+      setMaxStreak(0)
+      maxStreakRef.current = 0
+      setWordsDestroyed(0)
+      setExplosions([])
+      setIsGlitching(false)
+      setLeaderboardStatus('')
+      setGameState('playing')
+      gameStateRef.current = 'playing'
 
-    setTimeout(() => {
-      inputRef.current?.focus()
-    }, 60)
+      const now = performance.now()
+      lastTimeRef.current = now
+      lastSpawnTimeRef.current = now
+
+      // Initial word spawn
+      spawnWord()
+
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 60)
+    } catch (err) {
+      console.warn('[CyberSprint] Start error:', err)
+    } finally {
+      setIsStarting(false)
+    }
   }
 
   // Spawn a word matching current difficulty
@@ -412,6 +423,28 @@ export function CyberSprint() {
 
   const currentMultiplier = DIFFICULTY_MULTIPLIERS[difficulty]
 
+  if (isGameDisabled) {
+    return (
+      <div className="min-h-screen bg-black text-white font-mono flex items-center justify-center p-6 select-none relative z-20">
+        <div className="max-w-md w-full p-8 rounded-2xl bg-red-950/20 border-2 border-red-500/60 shadow-[0_0_60px_rgba(255,55,95,0.3)] text-center">
+          <div className="text-4xl mb-4">⛔</div>
+          <h2 className="text-xl font-black uppercase text-red-500 tracking-[0.2em] mb-3">
+            MODULE OFFLINE // DISABLED BY ADMIN
+          </h2>
+          <p className="text-xs text-red-200/80 mb-6 uppercase tracking-wider leading-relaxed">
+            THIS ARCADE PROTOCOL HAS BEEN SUSPENDED FOR MAINTENANCE. COME BACK LATER.
+          </p>
+          <Link
+            to="/"
+            className="inline-block px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 transition"
+          >
+            RETURN TO ARCADE
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       onClick={() => inputRef.current?.focus()}
@@ -483,6 +516,8 @@ export function CyberSprint() {
           >
             🏆
           </button>
+
+          <SfxToggle />
         </div>
       </header>
 

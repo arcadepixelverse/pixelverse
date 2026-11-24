@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { LoadingOrb } from '../components/LoadingOrb'
 import { apiFetch, getApiErrorMessage, SERVER_OVERLOAD_MESSAGE } from '../lib/apiClient'
+import { OfflineOverlay } from '../components/OfflineOverlay'
+import { useAuth } from '../context/AuthContext'
 
 export interface HistoryItem {
   question: string
@@ -10,8 +12,22 @@ export interface HistoryItem {
 }
 
 export function MindReader() {
+  const { syncPlaySession } = useAuth()
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
   const [gameState, setGameState] = useState<'setup' | 'playing' | 'reveal'>('setup')
   const [secretNumber, setSecretNumber] = useState<number | ''>('')
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.mind_reader === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
   const [gameId, setGameId] = useState<string | null>(null)
   const [currentQuestion, setCurrentQuestion] = useState<string>('')
   const [history, setHistory] = useState<HistoryItem[]>([])
@@ -51,6 +67,15 @@ export function MindReader() {
         body: JSON.stringify({ secretNumber: num }),
       })
 
+      if (startRes.status === 403) {
+        const errJson = await startRes.json().catch(() => ({}))
+        if (errJson?.error === 'GAME_DISABLED') {
+          setIsGameDisabled(true)
+          setIsLoading(false)
+          return
+        }
+      }
+
       if (!startRes.ok) {
         const errMsg = await getApiErrorMessage(startRes, `Server returned ${startRes.status}`)
         if (errMsg === SERVER_OVERLOAD_MESSAGE) {
@@ -62,6 +87,9 @@ export function MindReader() {
       }
 
       const startData = await startRes.json()
+      if (startData?.playSession) {
+        syncPlaySession(startData)
+      }
       const newGameId = startData.gameId
       setGameId(newGameId)
 
@@ -229,6 +257,15 @@ export function MindReader() {
     setIsLoading(false)
     setErrorMsg(null)
     setFinishFeedback(null)
+  }
+
+  if (isGameDisabled) {
+    return (
+      <OfflineOverlay
+        title="MIND READER // OFFLINE"
+        message="The Mind Reader telepathic subsystem has been temporarily suspended by an administrator."
+      />
+    )
   }
 
   return (

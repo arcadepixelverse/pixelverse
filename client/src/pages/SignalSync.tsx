@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/apiClient'
 import { Leaderboard } from '../components/Leaderboard'
 import { DifficultySelector, type Difficulty, DIFFICULTY_MULTIPLIERS } from '../components/DifficultySelector'
+import { useAuth } from '../context/AuthContext'
 
 // Sound synthesizers using AudioContext
 function playRhythmTone(type: 'hit' | 'miss' | 'gameover' | 'start') {
@@ -54,8 +55,12 @@ function playRhythmTone(type: 'hit' | 'miss' | 'gameover' | 'start') {
 }
 
 export function SignalSync() {
+  const { refreshQuota, syncPlaySession } = useAuth()
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'gameover'>('idle')
+  const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
+  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
+  const [isStarting, setIsStarting] = useState<boolean>(false)
   const [hits, setHits] = useState<number>(0)
   const [finalScore, setFinalScore] = useState<number>(0)
   const [streak, setStreak] = useState<number>(0)
@@ -63,6 +68,18 @@ export function SignalSync() {
   const [hitFeedback, setHitFeedback] = useState<'PERFECT' | 'MISS' | null>(null)
   const [leaderboardStatus, setLeaderboardStatus] = useState<string>('')
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false)
+
+  // Verify live game kill switch status on mount
+  useEffect(() => {
+    apiFetch('/api/status')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.gameStatus?.signal_sync === false) {
+          setIsGameDisabled(true)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Oscilloscope Physics State
   const [dotPos, setDotPos] = useState<number>(0) // 0 to 100 percentage
@@ -89,7 +106,7 @@ export function SignalSync() {
       const res = await apiFetch('/api/leaderboard/signal_sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff }),
+        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId }),
       })
       if (res.ok) {
         setLeaderboardStatus('✓ Harmonic sync logged in Global Leaderboard!')
@@ -98,6 +115,8 @@ export function SignalSync() {
       }
     } catch {
       setLeaderboardStatus('Score saved locally.')
+    } finally {
+      refreshQuota().catch(() => {})
     }
   }
 
@@ -118,32 +137,58 @@ export function SignalSync() {
   }, [])
 
   // Start / Reboot
-  const startGame = () => {
-    playRhythmTone('start')
-    setHits(0)
-    hitsRef.current = 0
-    setStreak(0)
-    setMaxStreak(0)
-    setFinalScore(0)
-    setHitFeedback(null)
-    setLeaderboardStatus('')
+  const startGame = async () => {
+    if (isStarting) return
+    setIsStarting(true)
+    try {
+      const res = await apiFetch('/api/games/signal-sync/start', { method: 'POST' })
+      if (!res.ok) {
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}))
+          if (errData?.error === 'GAME_DISABLED') {
+            setIsGameDisabled(true)
+            return
+          }
+        }
+        return
+      }
 
-    // Initial parameters based on difficulty
-    const initialWidth = difficulty === 'easy' ? 26 : difficulty === 'hard' ? 14 : 20
-    const initialSpeed = difficulty === 'easy' ? 55 : difficulty === 'hard' ? 85 : 70
+      const data = await res.json()
+      if (data.playSessionId) {
+        setPlaySessionId(data.playSessionId)
+      }
+      syncPlaySession(data)
 
-    setTargetWidth(initialWidth)
-    targetWidthRef.current = initialWidth
-    setTargetCenter(50)
-    targetCenterRef.current = 50
+      playRhythmTone('start')
+      setHits(0)
+      hitsRef.current = 0
+      setStreak(0)
+      setMaxStreak(0)
+      setFinalScore(0)
+      setHitFeedback(null)
+      setLeaderboardStatus('')
 
-    dotPosRef.current = 0
-    setDotPos(0)
-    directionRef.current = 1
-    speedRef.current = initialSpeed
+      // Initial parameters based on difficulty
+      const initialWidth = difficulty === 'easy' ? 26 : difficulty === 'hard' ? 14 : 20
+      const initialSpeed = difficulty === 'easy' ? 55 : difficulty === 'hard' ? 85 : 70
 
-    setGameState('playing')
-    lastTimeRef.current = performance.now()
+      setTargetWidth(initialWidth)
+      targetWidthRef.current = initialWidth
+      setTargetCenter(50)
+      targetCenterRef.current = 50
+
+      dotPosRef.current = 0
+      setDotPos(0)
+      directionRef.current = 1
+      speedRef.current = initialSpeed
+
+      setGameState('playing')
+      lastTimeRef.current = performance.now()
+    } catch (err) {
+      console.warn('[SignalSync] Start error:', err)
+    } finally {
+      setIsStarting(false)
+    }
   }
 
   // 60fps Dot Animation Loop
@@ -252,6 +297,28 @@ export function SignalSync() {
   }, [gameState, handleTrigger])
 
   const multiplier = DIFFICULTY_MULTIPLIERS[difficulty]
+
+  if (isGameDisabled) {
+    return (
+      <div className="min-h-screen bg-black text-white font-mono flex items-center justify-center p-6 select-none relative z-20">
+        <div className="max-w-md w-full p-8 rounded-2xl bg-cyan-950/20 border-2 border-cyan-500/60 shadow-[0_0_60px_rgba(0,245,255,0.3)] text-center">
+          <div className="text-4xl mb-4">⛔</div>
+          <h2 className="text-xl font-black uppercase text-cyan-400 tracking-[0.2em] mb-3">
+            MODULE OFFLINE // DISABLED BY ADMIN
+          </h2>
+          <p className="text-xs text-cyan-200/80 mb-6 uppercase tracking-wider leading-relaxed">
+            THIS ARCADE PROTOCOL HAS BEEN SUSPENDED FOR MAINTENANCE. COME BACK LATER.
+          </p>
+          <Link
+            to="/"
+            className="inline-block px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest text-white bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 transition"
+          >
+            RETURN TO ARCADE
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div

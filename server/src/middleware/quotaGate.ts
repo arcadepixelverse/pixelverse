@@ -24,9 +24,21 @@ export const quotaGate = async (req: Request, res: Response, next: NextFunction)
       });
     }
 
-    // Handle return value (object, array of records, or boolean)
+    // Handle return value (object, array of records, or boolean).
+    // Fail CLOSED: an unrecognised RPC payload must never be treated as "allowed".
     const result = Array.isArray(data) ? data[0] : data;
-    const allowed = result?.allowed ?? (typeof result === 'boolean' ? result : true);
+    let allowed: boolean;
+    if (typeof result === 'boolean') {
+      allowed = result;
+    } else if (result && typeof result.allowed === 'boolean') {
+      allowed = result.allowed;
+    } else {
+      console.error('[quotaGate] Unrecognised RPC payload, denying request:', JSON.stringify(data));
+      return res.status(500).json({
+        error: 'quota_check_failed',
+        message: 'Failed to verify usage quota',
+      });
+    }
     const current_count = result?.current_count ?? result?.count ?? (allowed ? 1 : limit);
 
     if (!allowed) {
@@ -46,7 +58,7 @@ export const quotaGate = async (req: Request, res: Response, next: NextFunction)
     console.error('[quotaGate] Unexpected error:', err);
     return res.status(500).json({
       error: 'quota_check_failed',
-      message: err.message || 'An unexpected error occurred in quota gate',
+      message: 'An unexpected error occurred in quota gate',
     });
   }
 };

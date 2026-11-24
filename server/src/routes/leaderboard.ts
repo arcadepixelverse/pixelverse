@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { supabaseAdmin } from '../lib/supabase';
+import { maintenanceGate } from '../middleware/maintenanceGate';
+import { validateAndConsumeSession, SCOREABLE_GAME_IDS } from '../middleware/playGate';
 
 export const leaderboardRouter = Router();
 
@@ -18,6 +20,9 @@ interface CachedLeaderboard {
 // In-memory cache for leaderboard queries: gameId -> { timestamp, data }
 export const leaderboardCache = new Map<string, CachedLeaderboard>();
 export const LEADERBOARD_CACHE_TTL_MS = 300_000; // 5 minutes
+
+// Generous upper bound — no legitimate round in any game can exceed this
+export const MAX_LEADERBOARD_SCORE = 1_000_000;
 
 // In-memory cache for user email prefixes to prevent redundant auth lookups
 export const userEmailCache = new Map<string, string>();
@@ -115,23 +120,61 @@ leaderboardRouter.get(
 leaderboardRouter.post(
   '/:gameId',
   requireAuth,
+  maintenanceGate,
   async (req: Request, res: Response) => {
     try {
       const { gameId } = req.params;
-      const { score, difficulty } = req.body;
+      const { score, difficulty, playSessionId } = req.body;
 
       if (!gameId) {
         return res.status(400).json({ error: 'gameId parameter is required' });
       }
 
-      const numScore = Number(score);
-      if (typeof score === 'undefined' || isNaN(numScore) || numScore < 0) {
-        return res.status(400).json({ error: 'score must be a non-negative number' });
+      // Only games that actually submit scores may write to the leaderboard
+      const normalizedGameId = gameId.replace(/-/g, '_').toLowerCase();
+      if (!SCOREABLE_GAME_IDS.has(normalizedGameId)) {
+        return res.status(400).json({ error: 'INVALID_GAME', message: 'This game does not support score submission.' });
       }
 
-      console.log(`[leaderboard] Score submission for ${gameId}: ${numScore} (difficulty: ${difficulty || 'standard'})`);
+      const numScore = Number(score);
+      if (
+        typeof score === 'undefined' ||
+        score === null ||
+        !Number.isFinite(numScore) ||
+        numScore < 0 ||
+        numScore > MAX_LEADERBOARD_SCORE
+      ) {
+        return res.status(400).json({
+          error: 'INVALID_SCORE',
+          message: `score must be a finite number between 0 and ${MAX_LEADERBOARD_SCORE}`,
+        });
+      }
 
       const userId = req.user!.id;
+
+      // Validate single-use play session token
+      const token = playSessionId || (req.headers['x-play-session-id'] as string);
+      const sessionCheck = token
+        ? validateAndConsumeSession(token, userId, normalizedGameId)
+        : ({ valid: false, reason: 'INVALID_SESSION' } as const);
+
+      if (!sessionCheck.valid) {
+        if (sessionCheck.reason === 'SESSION_TOO_SOON') {
+          console.warn(`[leaderboard] Rejected impossibly fast score submission for user ${userId} in ${normalizedGameId}.`);
+          return res.status(400).json({
+            error: 'SCORE_SUBMITTED_TOO_FAST',
+            message: 'Score submitted faster than a legitimate round is possible.',
+          });
+        }
+        console.warn(`[leaderboard] Blocked score submission for user ${userId} in ${normalizedGameId}: invalid or missing playSessionId.`);
+        return res.status(403).json({
+          error: 'INVALID_PLAY_SESSION',
+          message: 'Valid active play session required. Start a fresh game round to submit scores.',
+        });
+      }
+
+      console.log(`[leaderboard] Validated playSessionId for ${userId} in ${normalizedGameId}, saving score ${numScore}`);
+
       const userEmail = req.user!.email;
       if (userEmail) {
         userEmailCache.set(userId, userEmail.split('@')[0]);
@@ -142,7 +185,7 @@ leaderboardRouter.post(
         .from('game_scores')
         .select('id, score')
         .eq('user_id', userId)
-        .eq('game_id', gameId)
+        .eq('game_id', normalizedGameId)
         .order('score', { ascending: false })
         .limit(1);
 
@@ -169,9 +212,9 @@ leaderboardRouter.post(
             return res.status(500).json({ error: 'failed_to_update_score' });
           }
           updated = true;
-          console.log(`[leaderboard] Updated high score for user ${userId} in ${gameId}: ${numScore} (was ${existing.score})`);
+          console.log(`[leaderboard] Updated high score for user ${userId} in ${normalizedGameId}: ${numScore} (was ${existing.score})`);
         } else {
-          console.log(`[leaderboard] Score ${numScore} <= existing ${existing.score} for ${userId} in ${gameId}. No update.`);
+          console.log(`[leaderboard] Score ${numScore} <= existing ${existing.score} for ${userId} in ${normalizedGameId}. No update.`);
         }
       } else {
         // Insert new record
@@ -179,7 +222,7 @@ leaderboardRouter.post(
           .from('game_scores')
           .insert({
             user_id: userId,
-            game_id: gameId,
+            game_id: normalizedGameId,
             score: numScore,
             created_at: new Date().toISOString(),
           });
@@ -189,12 +232,12 @@ leaderboardRouter.post(
           return res.status(500).json({ error: 'failed_to_insert_score' });
         }
         updated = true;
-        console.log(`[leaderboard] Inserted new score for user ${userId} in ${gameId}: ${numScore}`);
+        console.log(`[leaderboard] Inserted new score for user ${userId} in ${normalizedGameId}: ${numScore}`);
       }
 
       // Invalidate cache for this gameId so next GET fetches fresh data
-      leaderboardCache.delete(gameId);
-      console.log(`[leaderboard] Cache invalidated for ${gameId}`);
+      leaderboardCache.delete(normalizedGameId);
+      console.log(`[leaderboard] Cache invalidated for ${normalizedGameId}`);
 
       return res.json({
         success: true,

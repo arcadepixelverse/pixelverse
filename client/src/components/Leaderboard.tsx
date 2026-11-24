@@ -106,7 +106,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           >
             {/* Header */}
-            <div className="px-6 pt-6 pb-4 border-b border-white/10 flex items-center justify-between">
+            <div className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-white/10 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-xl shadow-[0_0_15px_rgba(0,245,255,0.2)]">
                   🏆
@@ -135,7 +135,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
             </div>
 
             {/* Game Selector Tabs */}
-            <div className="px-6 pt-4 pb-2 flex gap-2 border-b border-white/5 bg-white/[0.02] overflow-x-auto whitespace-nowrap scrollbar-none">
+            <div className="px-4 sm:px-6 pt-4 pb-2 flex gap-2 border-b border-white/5 bg-white/[0.02] overflow-x-auto whitespace-nowrap scrollbar-none">
               {TABS.map((tab) => {
                 const isActive = activeTab === tab.id
                 return (
@@ -157,7 +157,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
             </div>
 
             {/* Content List */}
-            <div className="p-6 overflow-y-auto flex-1 space-y-2">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-2">
               {loading ? (
                 <div className="py-16 flex flex-col items-center justify-center gap-3">
                   <LoadingOrb size={48} color="#00F5FF" />
@@ -262,7 +262,7 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-3 border-t border-white/10 bg-black/40 flex items-center justify-between text-[11px] font-mono text-white/40">
+            <div className="px-4 sm:px-6 py-3 border-t border-white/10 bg-black/40 flex items-center justify-between text-[11px] font-mono text-white/40">
               <span>TOP 10 PILOTS</span>
               <span>IN-MEMORY MEMOIZED</span>
             </div>
