@@ -859,7 +859,7 @@ export function AdminConsole() {
 
         {/* ── Navigation Tabs (OP SYSTEM CONSOLE) ───────────────────────────── */}
         <div className="rounded-2xl border border-cyan-500/25 bg-[#0A0A0F]/90 backdrop-blur-md px-2 sm:px-3 shadow-[0_0_30px_rgba(0,245,255,0.06)]">
-          <div className="flex gap-1.5 overflow-x-auto py-2">
+          <div className="flex flex-wrap gap-1.5 py-2">
             {[
               { id: 'watchdog', label: '01 // WATCHDOG & KILL SWITCHES', badge: stats?.maintenance_mode ? 'MAINTENANCE' : 'NORMAL' },
               { id: 'diagnostics', label: '02 // DEEP SYSTEM DIAGNOSTICS', badge: '5 CHECKS' },
@@ -878,7 +878,7 @@ export function AdminConsole() {
                       handleRunMasterScan()
                     }
                   }}
-                  className={`px-4 py-2.5 rounded-lg text-xs font-black tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
+                  className={`px-3 py-2 rounded-lg text-[11px] sm:text-xs font-black tracking-wider sm:tracking-widest uppercase transition-all whitespace-nowrap cursor-pointer flex items-center gap-2 ${
                     isActive
                       ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-200 shadow-[0_0_22px_rgba(0,245,255,0.35)]'
                       : 'bg-white/[0.03] border border-white/10 text-white/55 hover:text-white hover:bg-white/[0.07] hover:border-white/20'
