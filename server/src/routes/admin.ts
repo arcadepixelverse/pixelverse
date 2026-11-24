@@ -207,7 +207,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
     // 3. Fetch profiles (is_banned, total_plays, daily_plays, last_played_at)
     const { data: profilesData, error: profileErr } = await supabaseAdmin
       .from('profiles')
-      .select('id, is_banned, total_plays, daily_plays, last_played_at');
+      .select('id, is_banned, is_vip, total_plays, daily_plays, last_played_at');
 
     if (profileErr) {
       console.warn('[admin/users] Error querying profiles:', profileErr);
@@ -226,6 +226,7 @@ adminRouter.get('/users', async (_req: Request, res: Response) => {
         daily_plays: prof?.daily_plays ?? 0,
         total_plays: prof?.total_plays ?? 0,
         is_banned: Boolean(prof?.is_banned),
+        is_vip: prof?.is_vip === true,
         last_played_at: prof?.last_played_at || null,
         created_at: u.created_at,
         last_sign_in_at: u.last_sign_in_at,

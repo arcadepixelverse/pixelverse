@@ -26,6 +26,7 @@ export interface AdminUser {
   daily_plays?: number
   total_plays?: number
   is_banned?: boolean
+  is_vip?: boolean
   last_played_at?: string | null
   created_at?: string
   last_sign_in_at?: string
@@ -513,6 +514,25 @@ export function AdminConsole() {
     }
   }
 
+  // Escape key closes confirm modals + lock background scroll while open
+  useEffect(() => {
+    const anyModalOpen = maintenanceConfirmOpen || bulkKillConfirmOpen
+    if (!anyModalOpen) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMaintenanceConfirmOpen(false)
+        setBulkKillConfirmOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [maintenanceConfirmOpen, bulkKillConfirmOpen])
+
   // Reset User Daily Quota
   const handleResetQuota = async (userId: string, email: string) => {
     if (actionLoading) return
@@ -540,6 +560,28 @@ export function AdminConsole() {
   }
 
   // Force Revoke User Session (Logout)
+  // Toggle VIP status
+  const handleToggleVip = async (userId: string, currentVip: boolean) => {
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/vip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isVip: !currentVip }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'VIP toggle failed')
+      const nextVip = data.is_vip === true
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_vip: nextVip } : u)))
+      setSelectedUser((prev) => (prev?.id === userId ? { ...prev, is_vip: nextVip } : prev))
+      showToast(nextVip ? 'VIP access granted' : 'VIP access revoked', 'success')
+    } catch (err: any) {
+      showToast(err?.message || 'VIP toggle failed', 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const handleRevokeSession = async (userId: string, email: string) => {
     if (actionLoading) return
     setActionLoading(true)
@@ -1497,6 +1539,7 @@ export function AdminConsole() {
                   <thead className="bg-white/5 text-white/40 text-[10px] uppercase tracking-wider border-b border-white/10">
                     <tr>
                       <th className="p-3.5">USER / EMAIL</th>
+                      <th className="p-3.5">TIER</th>
                       <th className="p-3.5">STATUS</th>
                       <th className="p-3.5">DAILY PLAYS</th>
                       <th className="p-3.5">TOTAL PLAYS</th>
@@ -1508,18 +1551,30 @@ export function AdminConsole() {
                   <tbody className="divide-y divide-white/5 font-mono text-[11px]">
                     {filteredUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-white/40">
+                        <td colSpan={8} className="p-8 text-center text-white/40">
                           NO USER PROFILES MATCH SEARCH QUERY.
                         </td>
                       </tr>
                     ) : (
                       filteredUsers.map((u) => {
                         const daily = u.daily_plays ?? 0
+                        const dailyCap = u.is_vip ? 25 : 10
                         return (
                           <tr key={u.id} className="hover:bg-white/[0.02] transition">
                             <td className="p-3.5">
                               <div className="font-sans font-bold text-white text-xs">{u.email}</div>
                               <div className="text-[9px] text-white/30 truncate max-w-[200px]">{u.id}</div>
+                            </td>
+                            <td className="p-3.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                  u.is_vip
+                                    ? 'bg-amber-400/20 border border-amber-400/50 text-amber-300'
+                                    : 'bg-white/10 border border-white/20 text-white/50'
+                                }`}
+                              >
+                                {u.is_vip ? '★ VIP' : 'FREE'}
+                              </span>
                             </td>
                             <td className="p-3.5">
                               <span
@@ -1533,8 +1588,8 @@ export function AdminConsole() {
                               </span>
                             </td>
                             <td className="p-3.5">
-                              <span className={daily >= 10 ? 'text-red-400 font-bold' : 'text-cyan-300'}>
-                                {daily} / 10
+                              <span className={daily >= dailyCap ? 'text-red-400 font-bold' : 'text-cyan-300'}>
+                                {daily} / {dailyCap}
                               </span>
                             </td>
                             <td className="p-3.5 text-white/80">{u.total_plays ?? 0}</td>
@@ -1544,6 +1599,20 @@ export function AdminConsole() {
                             </td>
                             <td className="p-3.5 text-right">
                               <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleVip(u.id, u.is_vip === true)}
+                                  title={u.is_vip ? 'Revoke VIP access' : 'Grant VIP access'}
+                                  disabled={actionLoading}
+                                  className={`px-2 py-1 rounded border text-[9px] font-bold uppercase transition cursor-pointer ${
+                                    u.is_vip
+                                      ? 'bg-amber-400/10 hover:bg-amber-400/20 border-amber-400/40 text-amber-300'
+                                      : 'bg-white/5 hover:bg-white/10 border-white/20 text-white/60'
+                                  }`}
+                                >
+                                  {u.is_vip ? 'REVOKE VIP' : 'GRANT VIP'}
+                                </button>
+
                                 <button
                                   type="button"
                                   onClick={() => handleResetQuota(u.id, u.email)}

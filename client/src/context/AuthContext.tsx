@@ -11,6 +11,8 @@ interface AuthContextType {
   accessToken: string | null
   todayUsage: number
   totalPlays: number
+  isVip: boolean
+  dailyLimit: number
   signIn: (email: string, password: string) => Promise<AuthResponse>
   signUp: (email: string, password: string) => Promise<AuthResponse>
   signOut: () => Promise<void>
@@ -35,6 +37,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false)
   const [todayUsage, setTodayUsage] = useState<number>(0)
   const [totalPlays, setTotalPlays] = useState<number>(0)
+  const [isVip, setIsVip] = useState<boolean>(false)
+  const [dailyLimit, setDailyLimit] = useState<number>(10)
 
   const fetchUsage = async (token: string) => {
     try {
@@ -49,6 +53,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
         setTodayUsage(0)
         setTotalPlays(0)
+        setIsVip(false)
+        setDailyLimit(10)
         return
       }
       if (res.ok) {
@@ -58,6 +64,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         if (typeof data.total_plays === 'number') {
           setTotalPlays(data.total_plays)
+        }
+        if (typeof data.isVip === 'boolean') {
+          setIsVip(data.isVip)
+        }
+        if (typeof data.dailyLimit === 'number' && data.dailyLimit > 0) {
+          setDailyLimit(data.dailyLimit)
         }
         if (typeof data.isAdmin === 'boolean') {
           setIsAdmin(data.isAdmin)
@@ -105,6 +117,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setTodayUsage(0)
         setTotalPlays(0)
+        setIsVip(false)
+        setDailyLimit(10)
         setIsAdmin(false)
       }
     })
@@ -138,6 +152,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsAdmin(false)
     setTodayUsage(0)
     setTotalPlays(0)
+    setIsVip(false)
+    setDailyLimit(10)
   }
 
   const refreshUsage = async () => {
@@ -166,6 +182,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       accessToken,
       todayUsage,
       totalPlays,
+      isVip,
+      dailyLimit,
       signIn,
       signUp,
       signOut,
@@ -174,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshUser: refreshUsage,
       syncPlaySession,
     }),
-    [user, session, loading, isAdmin, accessToken, todayUsage, totalPlays]
+    [user, session, loading, isAdmin, accessToken, todayUsage, totalPlays, isVip, dailyLimit]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

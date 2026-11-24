@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate, Link } from 'react-router-dom'
 import { GameCard } from './GameCard'
+import { OrbConfirmModal } from './OrbConfirmModal'
 import { useAuth } from '../context/AuthContext'
 import { Leaderboard } from './Leaderboard'
 import { SfxToggle } from './SfxToggle'
@@ -29,6 +30,7 @@ interface GameDef {
   genre?: string
   difficulty?: string
   hotkey?: number
+  orbCost?: 'ORB' | 'ARCADE'
 }
 
 const GAMES: GameDef[] = [
@@ -43,6 +45,7 @@ const GAMES: GameDef[] = [
     genre: 'Social',
     difficulty: 'Medium',
     hotkey: 1,
+    orbCost: 'ORB',
   },
   {
     id: 'higher_lower',
@@ -55,6 +58,7 @@ const GAMES: GameDef[] = [
     genre: 'Intuition',
     difficulty: 'Easy',
     hotkey: 2,
+    orbCost: 'ORB',
   },
   {
     id: 'mind_reader',
@@ -67,6 +71,7 @@ const GAMES: GameDef[] = [
     genre: 'Logic',
     difficulty: 'Medium',
     hotkey: 3,
+    orbCost: 'ORB',
   },
   {
     id: 'turing_test',
@@ -79,6 +84,7 @@ const GAMES: GameDef[] = [
     genre: 'Deduction',
     difficulty: 'Hard',
     hotkey: 4,
+    orbCost: 'ORB',
   },
   {
     id: 'survival',
@@ -91,6 +97,7 @@ const GAMES: GameDef[] = [
     genre: 'Survival',
     difficulty: 'Adaptive',
     hotkey: 5,
+    orbCost: 'ORB',
   },
   {
     id: 'vault',
@@ -115,6 +122,7 @@ const GAMES: GameDef[] = [
     genre: 'Social',
     difficulty: 'Casual',
     hotkey: 6,
+    orbCost: 'ORB',
   },
   {
     id: 'cyber_sprint',
@@ -127,6 +135,7 @@ const GAMES: GameDef[] = [
     genre: 'Reflex',
     difficulty: 'Fast',
     hotkey: 7,
+    orbCost: 'ARCADE',
   },
   {
     id: 'signal_sync',
@@ -139,6 +148,7 @@ const GAMES: GameDef[] = [
     genre: 'Rhythm',
     difficulty: 'Medium',
     hotkey: 8,
+    orbCost: 'ARCADE',
   },
   {
     id: 'overclock',
@@ -151,15 +161,21 @@ const GAMES: GameDef[] = [
     genre: 'Reflex',
     difficulty: 'Brutal',
     hotkey: 9,
+    orbCost: 'ARCADE',
   },
 ]
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { user, todayUsage, signOut, refreshUsage } = useAuth()
+  const { user, todayUsage, signOut, refreshUsage, isVip, dailyLimit } = useAuth()
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false)
   const [gameStatus, setGameStatus] = useState<Record<string, boolean>>({})
+  const [pendingOrbGame, setPendingOrbGame] = useState<GameDef | null>(null)
+  const [showVipInfo, setShowVipInfo] = useState(false)
+  const [goldTheme, setGoldTheme] = useState<boolean>(() => {
+    try { return localStorage.getItem('pv_gold_theme') === '1' } catch { return false }
+  })
   const navigate = useNavigate()
 
   const isAdmin = Boolean(
@@ -178,14 +194,19 @@ export function Dashboard() {
       .catch((err) => console.warn('Could not fetch live game status:', err))
   }, [])
 
-  // Remaining AI cycles for the day (used by the energy bar + hotkeys)
-  const remaining = Math.max(0, 10 - todayUsage)
-  const quotaColor = remaining === 0 ? '#FF375F' : remaining <= 3 ? '#FFD60A' : '#00F5FF'
+  // Remaining ORBS for the day (used by the energy bar + hotkeys)
+  const remaining = Math.max(0, dailyLimit - todayUsage)
+  const quotaColor = isVip && goldTheme ? '#F5C518' : remaining === 0 ? '#FF375F' : remaining <= 3 ? '#FFD60A' : (isVip ? '#F5C518' : '#00F5FF')
 
   const launchGame = (game: GameDef) => {
     const isOffline = gameStatus[game.id] === false
     if (!game.href || game.disabled || isOffline) {
       playError()
+      return
+    }
+    if (game.orbCost === 'ORB') {
+      playClick()
+      setPendingOrbGame(game)
       return
     }
     playClick()
@@ -224,7 +245,7 @@ export function Dashboard() {
   }
 
   return (
-    <div className="relative z-10 min-h-screen flex flex-col">
+    <div className={`relative z-10 min-h-screen flex flex-col ${isVip && goldTheme ? 'pv-gold-theme' : ''}`}>
       {/* ── Header ── */}
       <header className="flex items-center justify-between px-4 py-5 sm:px-6 md:px-12 flex-wrap gap-3 sm:gap-4">
         <div className="flex items-center gap-2.5">
@@ -251,6 +272,54 @@ export function Dashboard() {
             </Link>
           )}
 
+          {/* Tier badge — FREE with VIP perks popover, or VIP gold */}
+          {isVip ? (
+            <div className="relative flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !goldTheme
+                  setGoldTheme(next)
+                  try { localStorage.setItem('pv_gold_theme', next ? '1' : '0') } catch {}
+                }}
+                title="Toggle Gold Overdrive theme"
+                className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded-full border border-amber-400/50 bg-gradient-to-r from-amber-400/20 to-yellow-500/10 text-amber-300 shadow-[0_0_14px_rgba(245,197,24,0.3)] hover:shadow-[0_0_22px_rgba(245,197,24,0.5)] transition cursor-pointer"
+              >
+                <span>★</span>
+                <span>VIP ACCESS • {dailyLimit} ORBS/DAY</span>
+                <span className="text-amber-400/70">{goldTheme ? '◉' : '○'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowVipInfo((v) => !v)}
+                className="flex items-center gap-1.5 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded-full border border-white/15 bg-white/[0.04] text-white/60 hover:text-white/90 hover:border-white/30 transition cursor-pointer"
+              >
+                <span>FREE TIER • {dailyLimit} ORBS/DAY</span>
+                <span className="text-white/30">?</span>
+              </button>
+              {showVipInfo && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowVipInfo(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 w-64 rounded-xl border border-amber-400/25 bg-[#0a0e14]/95 p-4 shadow-[0_0_30px_rgba(245,197,24,0.15)]">
+                    <p className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-amber-300 mb-2">★ VIP PERKS</p>
+                    <ul className="text-[11px] font-mono text-white/60 space-y-1.5">
+                      <li>▸ 25 Orbs/Day daily quota</li>
+                      <li>▸ Gold Leaderboard Crown</li>
+                      <li>▸ VIP Instant Launch (no typing)</li>
+                      <li>▸ Gold Overdrive Theme</li>
+                    </ul>
+                    <p className="mt-3 text-[9px] font-mono text-white/30 leading-relaxed">
+                      VIP is granted exclusively by the Platform Owner.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Leaderboard button */}
           <button
             type="button"
@@ -268,11 +337,11 @@ export function Dashboard() {
               background: 'rgba(0, 245, 255, 0.07)',
               border: `1px solid ${quotaColor}55`,
             }}
-            title={`Daily AI Calls — ${remaining} of 10 cycles left (resets at midnight UTC)`}
+            title={`${isVip ? 'VIP' : 'FREE'} tier — ${remaining} of ${dailyLimit} orbs left (resets at 00:00 UTC)`}
           >
-            <span className="uppercase text-white/40">ENERGY</span>
+            <span className="uppercase text-white/40">{isVip ? '★ ORBS' : 'ORBS'}</span>
             <span className="flex items-center gap-[3px]" aria-hidden="true">
-              {Array.from({ length: 10 }).map((_, i) => {
+              {Array.from({ length: dailyLimit }).map((_, i) => {
                 const lit = i < remaining
                 return (
                   <span
@@ -286,7 +355,7 @@ export function Dashboard() {
                 )
               })}
             </span>
-            <span style={{ color: quotaColor }}>{remaining} / 10 CYCLES LEFT</span>
+            <span style={{ color: quotaColor }}>{remaining} / {dailyLimit} ORBS LEFT</span>
           </div>
 
           {/* Sound effects toggle */}
@@ -369,6 +438,8 @@ export function Dashboard() {
                 index={i}
                 disabled={game.disabled || isOffline}
                 statusBadge={game.disabled ? 'Coming Soon' : isOffline ? 'OFFLINE' : undefined}
+                costBadge={game.orbCost === 'ORB' ? '1 ORB' : game.orbCost === 'ARCADE' ? 'ARCADE' : undefined}
+                onLaunch={game.orbCost === 'ORB' ? () => setPendingOrbGame(game) : undefined}
               />
             )
           })}
@@ -385,6 +456,23 @@ export function Dashboard() {
           More games coming soon · Built with neon and dreams ⚡
         </motion.p>
       </main>
+
+      {/* ── Orb spend confirmation gate (API-powered games) ── */}
+      {pendingOrbGame && (
+        <OrbConfirmModal
+          gameTitle={pendingOrbGame.title}
+          gameIcon={pendingOrbGame.icon}
+          isVip={isVip}
+          remainingOrbs={remaining}
+          dailyLimit={dailyLimit}
+          onClose={() => setPendingOrbGame(null)}
+          onConfirm={() => {
+            const g = pendingOrbGame
+            setPendingOrbGame(null)
+            navigate(g.href!)
+          }}
+        />
+      )}
 
       {/* ── Global Leaderboard Modal ── */}
       <Leaderboard

@@ -7,6 +7,7 @@ export interface LeaderboardEntry {
   rank: number
   email_prefix: string
   score: number
+  is_vip?: boolean
 }
 
 export type LeaderboardGame =
@@ -71,15 +72,21 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
     }
   }, [isOpen, activeTab])
 
-  // Close on Escape key
+  // Close on Escape key + lock background scroll while open
   useEffect(() => {
+    if (!isOpen) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape') {
         onClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
   }, [isOpen, onClose])
 
   return (
@@ -215,7 +222,9 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
                           visible: { opacity: 1, y: 0 },
                         }}
                         className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
-                          isTop1
+                          entry.is_vip
+                            ? 'bg-amber-400/[0.06] border-amber-400/25 shadow-[0_0_16px_rgba(245,197,24,0.08)]'
+                            : isTop1
                             ? 'bg-amber-400/[0.07] border-amber-400/30 shadow-[0_0_20px_rgba(251,191,36,0.12)]'
                             : isTop2
                             ? 'bg-cyan-400/[0.05] border-cyan-400/25'
@@ -232,8 +241,16 @@ export function Leaderboard({ isOpen, onClose }: LeaderboardProps) {
                             {isTop1 ? '🥇' : isTop2 ? '🥈' : isTop3 ? '🥉' : `#${entry.rank}`}
                           </span>
                           <div className="flex flex-col">
-                            <span className="text-sm font-semibold tracking-wide text-white">
+                            <span className="text-sm font-semibold tracking-wide text-white flex items-center gap-1.5">
                               {entry.email_prefix}
+                              {entry.is_vip && (
+                                <span
+                                  className="text-[8px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-amber-400/50 bg-amber-400/15 text-amber-300 shadow-[0_0_8px_rgba(245,197,24,0.3)]"
+                                  title="VIP Member"
+                                >
+                                  ★ VIP
+                                </span>
+                              )}
                             </span>
                             <span className="text-[10px] font-mono uppercase text-white/30 tracking-wider">
                               Player

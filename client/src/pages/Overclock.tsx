@@ -7,6 +7,17 @@ import { SfxToggle } from '../components/SfxToggle'
 import { useAuth } from '../context/AuthContext'
 import { playBoost, playSuccess, playError } from '../lib/soundEngine'
 
+// ── Chaos Volatility tiers — escalate on every successful BANK ──────────────
+// Each tier widens the surge variance: bigger jackpot ceiling AND more duds.
+const CHAOS_TIERS = [
+  { name: 'TIER 1: STABLE',      dudMax: 0.20, normalMax: 0.90, spikeMax: 1.80, megaMax: 3.20, heatMul: 1.00, dudBias: 0.00 },
+  { name: 'TIER 2: VOLATILE',    dudMax: 0.25, normalMax: 0.95, spikeMax: 2.40, megaMax: 4.00, heatMul: 1.15, dudBias: 0.05 },
+  { name: 'TIER 3: UNSTABLE',    dudMax: 0.30, normalMax: 1.00, spikeMax: 3.00, megaMax: 4.80, heatMul: 1.30, dudBias: 0.10 },
+  { name: 'TIER 4: SINGULARITY', dudMax: 0.35, normalMax: 1.10, spikeMax: 3.80, megaMax: 5.50, heatMul: 1.50, dudBias: 0.15 },
+] as const
+
+const rand = (min: number, max: number) => min + Math.random() * (max - min)
+
 export function Overclock() {
   const { refreshQuota, syncPlaySession } = useAuth()
   const [gameState, setGameState] = useState<'idle' | 'running' | 'meltdown' | 'extracted'>('idle')
@@ -18,7 +29,9 @@ export function Overclock() {
   const [cycleClicks, setCycleClicks] = useState<number>(0)
   const [unbankedPoints, setUnbankedPoints] = useState<number>(0)
   const [bankedScore, setBankedScore] = useState<number>(0)
+  const [bankCount, setBankCount] = useState<number>(0)
   const [lastJump, setLastJump] = useState<number | null>(null)
+  const [lastSurgeTag, setLastSurgeTag] = useState<string | null>(null)
   const [recentBankNotice, setRecentBankNotice] = useState<number | null>(null)
   const [leaderboardStatus, setLeaderboardStatus] = useState<string>('')
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState<boolean>(false)
@@ -43,6 +56,7 @@ export function Overclock() {
   const cycleClicksRef = useRef<number>(0)
   const unbankedPointsRef = useRef<number>(0)
   const bankedScoreRef = useRef<number>(0)
+  const bankCountRef = useRef<number>(0)
   const gameStateRef = useRef<'idle' | 'running' | 'meltdown' | 'extracted'>('idle')
   const lastSirenTimeRef = useRef<number>(0)
 
@@ -147,7 +161,10 @@ export function Overclock() {
       unbankedPointsRef.current = 0
       setBankedScore(0)
       bankedScoreRef.current = 0
+      setBankCount(0)
+      bankCountRef.current = 0
       setLastJump(null)
+      setLastSurgeTag(null)
       setRecentBankNotice(null)
       setLeaderboardStatus('')
       setGameState('running')
@@ -214,11 +231,30 @@ export function Overclock() {
     cycleClicksRef.current = currentClicks
     setCycleClicks(currentClicks)
 
-    // Calculate random multiplier jump starting between +0.1x and +1.5x, scaling with cycleClicks
-    const minJump = 0.1 + currentClicks * 0.05
-    const maxJump = 1.5 + currentClicks * 0.25
-    const jump = Number((minJump + Math.random() * (maxJump - minJump)).toFixed(2))
+    // ── CHAOS SURGE: weighted high-variance curve ──
+    // ~50%+ duds (0.05x–tier.dudMax), ~30% normal surges, ~15% spikes,
+    // ~5% mega jackpots — all ceilings widen as Chaos Volatility rises.
+    const tier = CHAOS_TIERS[Math.min(bankCountRef.current, CHAOS_TIERS.length - 1)]
+    const roll = Math.random()
+    const dudP = 0.50 + tier.dudBias
+    let jump: number
+    let surgeTag: string
+    if (roll < dudP) {
+      jump = rand(0.05, tier.dudMax)
+      surgeTag = 'DUD'
+    } else if (roll < dudP + 0.30) {
+      jump = rand(0.20, tier.normalMax)
+      surgeTag = 'SURGE'
+    } else if (roll < dudP + 0.45) {
+      jump = rand(tier.normalMax, tier.spikeMax)
+      surgeTag = 'HIGH SPIKE!'
+    } else {
+      jump = rand(tier.spikeMax, tier.megaMax)
+      surgeTag = '⚡ JACKPOT!'
+    }
+    jump = Number(jump.toFixed(2))
     setLastJump(jump)
+    setLastSurgeTag(surgeTag)
 
     // Add jump to multiplier
     const nextMultiplier = Number((multiplierRef.current + jump).toFixed(2))
@@ -231,8 +267,9 @@ export function Overclock() {
     unbankedPointsRef.current = nextUnbanked
     setUnbankedPoints(nextUnbanked)
 
-    // Increase heat proportionally to multiplier jump size (bigger jump = significantly higher heat spike)
-    const heatSpike = Math.round(jump * 15 + Math.random() * 4)
+    // Heat scales with surge size AND chaos tier, plus a flat friction cost
+    // so even a tiny dud still heats the core.
+    const heatSpike = Math.round(jump * 15 * tier.heatMul + 3 + Math.random() * 4)
     const nextHeat = Math.min(100, Math.round(heatRef.current + heatSpike))
     heatRef.current = nextHeat
     setHeat(nextHeat)
@@ -254,6 +291,11 @@ export function Overclock() {
     const newBanked = bankedScoreRef.current + pointsToBank
     bankedScoreRef.current = newBanked
     setBankedScore(newBanked)
+
+    // Every successful BANK escalates Chaos Volatility
+    const nextBankCount = bankCountRef.current + 1
+    bankCountRef.current = nextBankCount
+    setBankCount(nextBankCount)
 
     // Reset unbankedPoints = 0, multiplier = 1.0, cycleClicks = 0
     unbankedPointsRef.current = 0
@@ -453,6 +495,41 @@ export function Overclock() {
                   </span>
                 )}
               </div>
+            </div>
+
+            {/* Chaos Volatility + last-surge readout */}
+            <div className="w-full flex items-center justify-between px-2 -mt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] uppercase tracking-[0.2em] text-white/35 font-bold">
+                  CHAOS VOLATILITY
+                </span>
+                <span
+                  className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded border"
+                  style={{
+                    color: ['#30D158', '#FFD60A', '#FF9F0A', '#FF375F'][Math.min(bankCount, 3)],
+                    borderColor: ['rgba(48,209,88,0.4)', 'rgba(255,214,10,0.4)', 'rgba(255,159,10,0.45)', 'rgba(255,55,95,0.5)'][Math.min(bankCount, 3)],
+                    background: ['rgba(48,209,88,0.08)', 'rgba(255,214,10,0.08)', 'rgba(255,159,10,0.1)', 'rgba(255,55,95,0.12)'][Math.min(bankCount, 3)],
+                  }}
+                >
+                  {CHAOS_TIERS[Math.min(bankCount, CHAOS_TIERS.length - 1)].name}
+                </span>
+                <span className="text-[9px] text-white/25 font-mono">
+                  BANKS: {bankCount}
+                </span>
+              </div>
+              {lastSurgeTag && lastJump !== null && (
+                <span
+                  className="text-[10px] font-black uppercase tracking-wider"
+                  style={{
+                    color: lastSurgeTag === 'DUD' ? 'rgba(255,255,255,0.4)'
+                      : lastSurgeTag === 'SURGE' ? '#00F5FF'
+                      : lastSurgeTag === 'HIGH SPIKE!' ? '#FF9F0A'
+                      : '#FF375F',
+                  }}
+                >
+                  SURGE +{lastJump.toFixed(2)}x // {lastSurgeTag}
+                </span>
+              )}
             </div>
 
             {/* Thermal Core Gauge */}

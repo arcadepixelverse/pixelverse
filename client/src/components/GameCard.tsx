@@ -16,6 +16,8 @@ export interface GameCardProps {
   genre?: string
   difficulty?: string
   hotkey?: number
+  costBadge?: string
+  onLaunch?: () => void
 }
 
 export function GameCard({
@@ -31,6 +33,8 @@ export function GameCard({
   genre,
   difficulty,
   hotkey,
+  costBadge,
+  onLaunch,
 }: GameCardProps) {
   const isPlayable = Boolean(href) && !disabled
   const isOffline = statusBadge === 'OFFLINE'
@@ -126,6 +130,18 @@ export function GameCard({
           )}
         </span>
 
+        {isPlayable && costBadge && (
+          <span
+            className={`flex-shrink-0 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+              costBadge === '1 ORB'
+                ? 'border-amber-400/40 text-amber-300 bg-amber-400/10'
+                : 'border-white/15 text-white/50 bg-white/[0.04]'
+            }`}
+          >
+            {costBadge}
+          </span>
+        )}
+
         {isPlayable && hotkey != null && (
           <kbd
             className="flex-shrink-0 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border border-white/15 text-white/40 bg-black/40"
@@ -142,7 +158,14 @@ export function GameCard({
     return (
       <Link
         to={href}
-        onClick={playClick}
+        onClick={(e) => {
+          if (onLaunch) {
+            e.preventDefault()
+            onLaunch()
+            return
+          }
+          playClick()
+        }}
         aria-label={`Launch ${title}`}
         className="block no-underline h-full rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
