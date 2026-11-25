@@ -152,6 +152,8 @@ export function safeParseJson<T>(raw: string, fallback?: T): T {
   }
 }
 
+import { recordServiceCall } from './quotaTracker';
+
 // ── 3-TIER AI FAILOVER ENGINE ────────────────────────────────────────────────
 
 /** Per-provider call telemetry for the admin API report (in-memory, resets on boot). */
@@ -166,6 +168,7 @@ function recordAiProvider(provider: keyof typeof aiProviderTelemetry, ok: boolea
   t.calls += 1;
   if (!ok) t.errors += 1;
   if (rateLimited) t.rateLimits += 1;
+  recordServiceCall(provider, ok);
 }
 
 function isRateLimitError(err: any): boolean {

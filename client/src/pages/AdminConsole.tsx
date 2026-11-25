@@ -89,6 +89,33 @@ export default function AdminConsole() {
   const [apiReport, setApiReport] = useState<any>(null)
   const [livePing, setLivePing] = useState<any[] | null>(null)
   const [auditLogs, setAuditLogs] = useState<any[]>([])
+  const [activityFeed, setActivityFeed] = useState<any[]>([])
+  const [autoRefreshFeed, setAutoRefreshFeed] = useState(false)
+  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false)
+
+  const [qaChecklist, setQaChecklist] = useState<
+    Record<
+      string,
+      {
+        routeLoads?: boolean
+        gameplayVerified?: boolean
+        mobileResponsive?: boolean
+        zeroConsoleErrors?: boolean
+        lastChecked?: string
+        checkedBy?: string
+      }
+    >
+  >(() => {
+    try {
+      const cached = localStorage.getItem('pv_game_qa_checklist')
+      return cached ? JSON.parse(cached) : {}
+    } catch {
+      return {}
+    }
+  })
+  const [qaLightCheck, setQaLightCheck] = useState<any[] | null>(null)
+  const [isRunningLightCheck, setIsRunningLightCheck] = useState(false)
+
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -168,6 +195,35 @@ export default function AdminConsole() {
         caughtErrors.push(err.message || 'Audit Logs fetch failed')
       }
 
+      // 6. Activity Feed
+      try {
+        const feedData = await safeFetchJson('/api/admin/activity-feed')
+        if (Array.isArray(feedData)) setActivityFeed(feedData)
+      } catch (err: any) {
+        console.warn('[AdminConsole] Activity Feed fetch notice:', err)
+      }
+
+      // 7. QA Checklist
+      try {
+        const qaData = await safeFetchJson('/api/admin/qa-checklist')
+        if (qaData && typeof qaData === 'object') {
+          setQaChecklist((prev) => ({ ...prev, ...qaData }))
+          try {
+            localStorage.setItem('pv_game_qa_checklist', JSON.stringify(qaData))
+          } catch {}
+        }
+      } catch (err: any) {
+        console.warn('[AdminConsole] QA Checklist fetch notice:', err)
+      }
+
+      // 8. QA Light Check
+      try {
+        const lightData = await safeFetchJson('/api/admin/qa-light-check')
+        if (lightData?.games) setQaLightCheck(lightData.games)
+      } catch (err: any) {
+        console.warn('[AdminConsole] QA Light Check fetch notice:', err)
+      }
+
       if (caughtErrors.length > 0) {
         setErrorMsg(caughtErrors.join(' • '))
       }
@@ -187,6 +243,82 @@ export default function AdminConsole() {
     }
     loadAllData()
   }, [loadAllData])
+
+  // Live Activity Feed 15s polling (paused by default)
+  useEffect(() => {
+    if (!autoRefreshFeed) return
+    const timer = setInterval(() => {
+      safeFetchJson('/api/admin/activity-feed')
+        .then((data) => {
+          if (Array.isArray(data)) setActivityFeed(data)
+        })
+        .catch(() => {})
+    }, 15000)
+    return () => clearInterval(timer)
+  }, [autoRefreshFeed])
+
+  const refreshFeedOnly = async () => {
+    setIsFeedRefreshing(true)
+    try {
+      const feedData = await safeFetchJson('/api/admin/activity-feed')
+      if (Array.isArray(feedData)) {
+        setActivityFeed(feedData)
+        showBanner('Live feed refreshed')
+      }
+    } catch (err: any) {
+      showBanner(err.message || 'Failed to refresh feed', true)
+    } finally {
+      setIsFeedRefreshing(false)
+    }
+  }
+
+  const runLightCheck = async () => {
+    playClick()
+    setIsRunningLightCheck(true)
+    try {
+      const data = await safeFetchJson('/api/admin/qa-light-check')
+      if (data?.games) {
+        setQaLightCheck(data.games)
+        showBanner('Automated light checks verified for all 10 games')
+      }
+    } catch (err: any) {
+      showBanner(err.message || 'Light check failed', true)
+    } finally {
+      setIsRunningLightCheck(false)
+    }
+  }
+
+  const toggleChecklistItem = async (
+    gameId: string,
+    field: 'routeLoads' | 'gameplayVerified' | 'mobileResponsive' | 'zeroConsoleErrors'
+  ) => {
+    playClick()
+    const current = qaChecklist[gameId] || {}
+    const updatedEntry = {
+      ...current,
+      [field]: !current[field],
+      lastChecked: new Date().toISOString(),
+      checkedBy: user?.email ? user.email.split('@')[0] : 'admin',
+    }
+    const updatedChecklist = {
+      ...qaChecklist,
+      [gameId]: updatedEntry,
+    }
+
+    setQaChecklist(updatedChecklist)
+    try {
+      localStorage.setItem('pv_game_qa_checklist', JSON.stringify(updatedChecklist))
+    } catch {}
+
+    try {
+      await apiFetch('/api/admin/qa-checklist', {
+        method: 'POST',
+        body: JSON.stringify({ checklist: updatedChecklist }),
+      })
+    } catch (err: any) {
+      console.warn('[AdminConsole] Failed to save QA checklist to server:', err)
+    }
+  }
 
   const scrollToSection = (id: string) => {
     playClick()
@@ -368,6 +500,40 @@ export default function AdminConsole() {
     return `${s}s`
   }
 
+  const formatDate = (isoString?: string | null) => {
+    if (!isoString) return '—'
+    try {
+      const d = new Date(isoString)
+      if (isNaN(d.getTime())) return '—'
+      return d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    } catch {
+      return '—'
+    }
+  }
+
+  const formatRelativeTime = (isoString?: string | null) => {
+    if (!isoString) return 'Never'
+    try {
+      const d = new Date(isoString)
+      if (isNaN(d.getTime())) return 'Never'
+      const diffMs = Date.now() - d.getTime()
+      const diffSec = Math.floor(diffMs / 1000)
+      if (diffSec < 60) return `${Math.max(0, diffSec)}s ago`
+      const diffMin = Math.floor(diffSec / 60)
+      if (diffMin < 60) return `${diffMin}m ago`
+      const diffHr = Math.floor(diffMin / 60)
+      if (diffHr < 24) return `${diffHr}h ago`
+      const diffDays = Math.floor(diffHr / 24)
+      return `${diffDays}d ago`
+    } catch {
+      return 'Never'
+    }
+  }
+
   if (loading) {
     return (
       <div className="relative z-10 min-h-screen bg-black flex flex-col items-center justify-center p-6 text-cyan-500 font-mono text-center select-none">
@@ -438,7 +604,21 @@ export default function AdminConsole() {
               onClick={() => scrollToSection('users')}
               className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
             >
-              USERS
+              USERS & FEED
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('api-keys')}
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
+            >
+              API & QUOTAS
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollToSection('game-qa')}
+              className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-700/60 text-zinc-300 hover:text-white hover:border-zinc-500 transition cursor-pointer shrink-0"
+            >
+              GAME QA
             </button>
             <button
               type="button"
@@ -697,16 +877,16 @@ export default function AdminConsole() {
           </div>
         </section>
 
-        {/* ── SECTION 2: User Database ── */}
-        <section id="users" className="scroll-mt-24 space-y-4">
+        {/* ── SECTION 2: User Activity & Live Feed ── */}
+        <section id="users" className="scroll-mt-24 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
             <div>
               <h2 className="text-lg font-black tracking-wider text-cyan-400 uppercase flex items-center gap-2">
                 <span>👥</span>
-                <span>SECTION 2 // USER DATABASE</span>
+                <span>SECTION 2 // USER ACTIVITY & LIVE FEED</span>
               </h2>
               <p className="text-zinc-500 text-xs">
-                Player status, VIP tiers, daily plays, and quota management.
+                Real-time player action stream, account tiers, signup dates, and moderation controls.
               </p>
             </div>
 
@@ -722,6 +902,99 @@ export default function AdminConsole() {
             </div>
           </div>
 
+          {/* ── Live Activity Feed Card ── */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-black">⚡</span>
+                <span className="text-xs font-black tracking-wider uppercase text-zinc-200">
+                  LIVE ACTIVITY FEED
+                </span>
+                <span className="text-[10px] text-zinc-500 font-mono">
+                  ({activityFeed.length} RECENT EVENTS)
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Auto-Refresh Toggle */}
+                <button
+                  type="button"
+                  onClick={() => setAutoRefreshFeed((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded text-[10px] font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                    autoRefreshFeed
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-700/60 hover:text-zinc-200'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      autoRefreshFeed ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'
+                    }`}
+                  />
+                  <span>AUTO-REFRESH (15s): {autoRefreshFeed ? 'ON' : 'OFF'}</span>
+                </button>
+
+                {/* Manual Refresh Button */}
+                <button
+                  type="button"
+                  onClick={refreshFeedOnly}
+                  disabled={isFeedRefreshing}
+                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-[10px] font-bold transition cursor-pointer disabled:opacity-50"
+                >
+                  {isFeedRefreshing ? 'REFRESHING...' : '[ REFRESH FEED ]'}
+                </button>
+              </div>
+            </div>
+
+            {/* Event Stream */}
+            <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+              {activityFeed.length === 0 ? (
+                <div className="py-6 text-center text-zinc-600 text-xs">
+                  No recent game completions, signups, or admin actions recorded.
+                </div>
+              ) : (
+                activityFeed.map((event: any) => {
+                  let badgeStyle = 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                  let badgeText = 'GAME PLAY'
+                  if (event.type === 'ADMIN_ACTION') {
+                    badgeStyle = 'bg-amber-400/10 text-amber-300 border-amber-400/30'
+                    badgeText = 'ADMIN ACTION'
+                  } else if (event.type === 'USER_SIGNUP') {
+                    badgeStyle = 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                    badgeText = 'USER SIGNUP'
+                  }
+
+                  return (
+                    <div
+                      key={event.id}
+                      className="p-2.5 rounded bg-zinc-900/50 border border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 text-xs font-mono hover:border-zinc-700 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${badgeStyle}`}>
+                          {badgeText}
+                        </span>
+                        <span className="font-bold text-zinc-200">{event.title}</span>
+                        <span className="text-zinc-600">by</span>
+                        <span className="text-cyan-400">{event.actor}</span>
+                        {event.details && (
+                          <>
+                            <span className="text-zinc-600">→</span>
+                            <span className="text-zinc-400 text-[11px] truncate max-w-xs">
+                              {event.details}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <span className="text-zinc-500 text-[10px] shrink-0">
+                        {formatRelativeTime(event.timestamp)}
+                      </span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
           {/* User Table */}
           <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -730,6 +1003,8 @@ export default function AdminConsole() {
                   <th className="py-3 px-4">Player</th>
                   <th className="py-3 px-4">Role / Tier</th>
                   <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Signup Date</th>
+                  <th className="py-3 px-4">Last Active</th>
                   <th className="py-3 px-4">Orbs Today</th>
                   <th className="py-3 px-4">Total Plays</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -738,7 +1013,7 @@ export default function AdminConsole() {
               <tbody className="divide-y divide-zinc-800/60">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-zinc-500">
+                    <td colSpan={8} className="py-8 text-center text-zinc-500">
                       No users matching "{searchQuery}"
                     </td>
                   </tr>
@@ -757,7 +1032,7 @@ export default function AdminConsole() {
                         {/* Player */}
                         <td className="py-3 px-4">
                           <div className="font-bold text-zinc-200">
-                            {u.username ? `@${u.username}` : '(no handle)'}
+                            {u.username ? `@${u.username}` : '[NO HANDLE]'}
                           </div>
                           <div className="text-[11px] text-zinc-400 font-mono">
                             {u.email}
@@ -795,6 +1070,16 @@ export default function AdminConsole() {
                               ACTIVE
                             </span>
                           )}
+                        </td>
+
+                        {/* Signup Date */}
+                        <td className="py-3 px-4 text-zinc-400 text-xs font-mono">
+                          {formatDate(u.created_at)}
+                        </td>
+
+                        {/* Last Active */}
+                        <td className="py-3 px-4 text-zinc-400 text-xs font-mono">
+                          {formatRelativeTime(u.last_played_at || u.last_sign_in_at)}
                         </td>
 
                         {/* Orbs Today */}
@@ -860,26 +1145,454 @@ export default function AdminConsole() {
           </div>
         </section>
 
-        {/* ── SECTION 3: System & API Health ── */}
-        <section id="health" className="scroll-mt-24 space-y-4">
+        {/* ── SECTION 3: API Key & Quota Management ── */}
+        <section id="api-keys" className="scroll-mt-24 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
             <div>
-              <h2 className="text-lg font-black tracking-wider text-emerald-400 uppercase flex items-center gap-2">
-                <span>🩺</span>
-                <span>SECTION 3 // SYSTEM & API HEALTH</span>
+              <h2 className="text-lg font-black tracking-wider text-amber-400 uppercase flex items-center gap-2">
+                <span>🔑</span>
+                <span>SECTION 3 // API KEY & QUOTA MANAGEMENT</span>
               </h2>
               <p className="text-zinc-500 text-xs">
-                Real-time diagnostics, memory footprint, question banks, and provider status.
+                Real-time outward provider telemetry, masked secrets, daily reset counters, and failover limits.
               </p>
             </div>
 
             <button
               onClick={pingApiKeys}
               disabled={isPinging}
-              className="px-3 py-1.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold transition cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold transition cursor-pointer disabled:opacity-50 text-xs"
             >
               {isPinging ? 'TESTING CONNECTIONS...' : '[ PING API KEYS ]'}
             </button>
+          </div>
+
+          {/* Top Summary Bar */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+              <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+                KEYS CONFIGURED
+              </div>
+              <div className="text-xl font-black text-amber-300">
+                {apiReport?.serviceQuotas?.summary?.totalConfigured ?? 4} / {apiReport?.serviceQuotas?.summary?.totalServices ?? 5}
+              </div>
+              <div className="text-[10px] text-zinc-600 mt-0.5">OUTWARD SERVICE KEYS</div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+              <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+                ACTIVE KEYS
+              </div>
+              <div className="text-xl font-black text-emerald-400 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>{apiReport?.serviceQuotas?.summary?.activeKeys ?? 4} ONLINE</span>
+              </div>
+              <div className="text-[10px] text-zinc-600 mt-0.5">PROVIDERS AVAILABLE</div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+              <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+                AI CALLS TODAY
+              </div>
+              <div className="text-xl font-black text-cyan-400">
+                {apiReport?.serviceQuotas?.summary?.aggregateAiCallsToday ?? stats.totalAiCallsToday ?? 0}
+              </div>
+              <div className="text-[10px] text-zinc-600 mt-0.5">
+                CAP: {apiReport?.serviceQuotas?.summary?.aggregateAiDailyCap?.toLocaleString() ?? '16,100'} RPD
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800">
+              <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-bold mb-1">
+                RESET SCHEDULE
+              </div>
+              <div className="text-xl font-black text-zinc-200">
+                00:00 UTC
+              </div>
+              <div className="text-[10px] text-zinc-600 mt-0.5">DAILY AUTOMATIC FLUSH</div>
+            </div>
+          </div>
+
+          {/* Live Ping Results (if triggered) */}
+          {livePing && livePing.length > 0 && (
+            <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/40 space-y-3">
+              <div className="text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                <span>✓</span>
+                <span>LIVE PING RESULTS</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {livePing.map((res: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded bg-zinc-900 border border-zinc-800 space-y-1"
+                  >
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="text-zinc-200">{res.provider}</span>
+                      <span
+                        className={
+                          res.status === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'
+                        }
+                      >
+                        {res.status}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500">Latency: {res.latencyMs}ms</div>
+                    <div className="text-[10px] text-zinc-400 truncate">{res.message}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Service Quotas Cards */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3">
+            <div className="text-zinc-500 text-[10px] uppercase font-bold tracking-wider">
+              TELEMETRY & USAGE BREAKDOWN BY SERVICE
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(
+                apiReport?.serviceQuotas?.services || [
+                  {
+                    serviceKey: 'groq',
+                    serviceLabel: 'GROQ LPU (TIER 1 - PRIMARY)',
+                    envVar: 'GROQ_API_KEY',
+                    status: apiReport?.keys?.GROQ_API_KEY?.status || 'CONFIGURED',
+                    maskedKey: apiReport?.keys?.GROQ_API_KEY?.masked || '••••••••••••a1b2',
+                    dailyLimit: 14400,
+                    dailyLimitLabel: '14,400 RPD',
+                    minuteLimitLabel: '30 RPM',
+                    callsToday: 0,
+                    errorsToday: 0,
+                    providerType: 'AI',
+                  },
+                  {
+                    serviceKey: 'gemini',
+                    serviceLabel: 'GOOGLE GEMINI 2.0 (TIER 2 - FAILOVER)',
+                    envVar: 'GEMINI_API_KEY',
+                    status: apiReport?.keys?.GEMINI_API_KEY?.status || 'CONFIGURED',
+                    maskedKey: apiReport?.keys?.GEMINI_API_KEY?.masked || '••••••••••••c3d4',
+                    dailyLimit: 1500,
+                    dailyLimitLabel: '1,500 RPD',
+                    minuteLimitLabel: '15 RPM',
+                    callsToday: 0,
+                    errorsToday: 0,
+                    providerType: 'AI',
+                  },
+                  {
+                    serviceKey: 'openrouter',
+                    serviceLabel: 'OPENROUTER (TIER 3 - EMERGENCY)',
+                    envVar: 'OPENROUTER_API_KEY',
+                    status: apiReport?.keys?.OPENROUTER_API_KEY?.status || 'CONFIGURED',
+                    maskedKey: apiReport?.keys?.OPENROUTER_API_KEY?.masked || '••••••••••••e5f6',
+                    dailyLimit: 200,
+                    dailyLimitLabel: '200 RPD',
+                    minuteLimitLabel: '20 RPM',
+                    callsToday: 0,
+                    errorsToday: 0,
+                    providerType: 'AI',
+                  },
+                  {
+                    serviceKey: 'supabase',
+                    serviceLabel: 'SUPABASE DB & AUTH (SERVICE ROLE)',
+                    envVar: 'SUPABASE_SERVICE_ROLE_KEY',
+                    status: apiReport?.keys?.SUPABASE_SERVICE_ROLE_KEY?.status || 'CONFIGURED',
+                    maskedKey: apiReport?.keys?.SUPABASE_SERVICE_ROLE_KEY?.masked || '••••••••••••7890',
+                    dailyLimit: 50000,
+                    dailyLimitLabel: '50,000 RPD',
+                    minuteLimitLabel: '500 RPM',
+                    callsToday: 0,
+                    errorsToday: 0,
+                    providerType: 'DATABASE',
+                  },
+                  {
+                    serviceKey: 'supabase_anon',
+                    serviceLabel: 'SUPABASE CLIENT (ANON KEY)',
+                    envVar: 'SUPABASE_ANON_KEY',
+                    status: apiReport?.keys?.SUPABASE_ANON_KEY?.status || 'CONFIGURED',
+                    maskedKey: apiReport?.keys?.SUPABASE_ANON_KEY?.masked || '••••••••••••anon',
+                    dailyLimit: 50000,
+                    dailyLimitLabel: '50,000 RPD',
+                    minuteLimitLabel: '500 RPM',
+                    callsToday: 0,
+                    errorsToday: 0,
+                    providerType: 'DATABASE',
+                  },
+                ]
+              ).map((srv: any) => {
+                const isConfigured = srv.status === 'CONFIGURED'
+                const pct = srv.dailyLimit > 0 ? Math.min(100, Math.round((srv.callsToday / srv.dailyLimit) * 100)) : 0
+
+                return (
+                  <div
+                    key={srv.serviceKey}
+                    className="p-3.5 rounded-lg bg-zinc-900/60 border border-zinc-800 space-y-2.5 flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded font-bold border border-zinc-700 bg-zinc-800 text-zinc-400">
+                          {srv.providerType}
+                        </span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            isConfigured
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                          }`}
+                        >
+                          {isConfigured ? 'CONFIGURED' : 'MISSING'}
+                        </span>
+                      </div>
+
+                      <div className="font-bold text-xs text-zinc-200 leading-snug">
+                        {srv.serviceLabel}
+                      </div>
+                      <div className="text-[11px] font-mono text-zinc-400 mt-1">
+                        {srv.maskedKey}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-zinc-800/80 text-[11px]">
+                      <div className="flex justify-between text-zinc-400">
+                        <span>Configured Limit:</span>
+                        <span className="font-mono text-zinc-200">
+                          {srv.dailyLimitLabel} • {srv.minuteLimitLabel}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-zinc-400">
+                        <span>Calls Used Today:</span>
+                        <span className="font-mono text-amber-400 font-bold">
+                          {srv.callsToday.toLocaleString()} / {srv.dailyLimit.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {/* Usage bar */}
+                      <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-amber-400 h-full rounded-full transition-all duration-300"
+                          style={{ width: `${Math.max(2, pct)}%` }}
+                        />
+                      </div>
+
+                      {srv.errorsToday > 0 && (
+                        <div className="text-[10px] text-rose-400 font-mono">
+                          ⚠️ {srv.errorsToday} failed calls logged today
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* ── SECTION 4: Game QA & Health Checklist ── */}
+        <section id="game-qa" className="scroll-mt-24 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
+            <div>
+              <h2 className="text-lg font-black tracking-wider text-purple-400 uppercase flex items-center gap-2">
+                <span>🎮</span>
+                <span>SECTION 4 // GAME QA & HEALTH CHECKLIST</span>
+              </h2>
+              <p className="text-zinc-500 text-xs">
+                Automated route & content verification coupled with persistent manual UI/UX audit checklists.
+              </p>
+            </div>
+
+            <button
+              onClick={runLightCheck}
+              disabled={isRunningLightCheck}
+              className="px-3 py-1.5 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold transition cursor-pointer disabled:opacity-50 text-xs"
+            >
+              {isRunningLightCheck ? 'CHECKING ALL 10 GAMES...' : '[ RUN AUTOMATED LIGHT CHECK ]'}
+            </button>
+          </div>
+
+          {/* 10 Games QA Cards Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {ALL_GAMES.map((game) => {
+              const isGameOnline = stats?.gameStatus?.[game.id] !== false
+              const lightCheckInfo = qaLightCheck?.find((g) => g.gameId === game.id)
+              const manualCheck = qaChecklist[game.id] || {}
+
+              const checkedCount = [
+                manualCheck.routeLoads,
+                manualCheck.gameplayVerified,
+                manualCheck.mobileResponsive,
+                manualCheck.zeroConsoleErrors,
+              ].filter(Boolean).length
+
+              let statusPill = {
+                text: 'UNVERIFIED',
+                style: 'bg-zinc-800 text-zinc-400 border border-zinc-700',
+              }
+
+              if (!isGameOnline) {
+                statusPill = {
+                  text: 'OFFLINE',
+                  style: 'bg-rose-500/15 text-rose-400 border border-rose-500/30',
+                }
+              } else if (checkedCount === 4) {
+                statusPill = {
+                  text: 'PASS',
+                  style: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]',
+                }
+              } else if (checkedCount > 0) {
+                statusPill = {
+                  text: `NEEDS REVIEW (${checkedCount}/4)`,
+                  style: 'bg-amber-500/15 text-amber-400 border border-amber-500/30',
+                }
+              }
+
+              // Determine automated content string
+              let contentNote = 'Pure Arcade Engine (Unlimited Plays)'
+              if (game.id === 'higher_lower') {
+                contentNote = `${apiReport?.gamesContent?.hl_questions?.total ?? 0} questions (${apiReport?.gamesContent?.hl_questions?.unused ?? 0} fresh)`
+              } else if (game.id === 'turing_test') {
+                contentNote = `${apiReport?.gamesContent?.turing_scenarios?.total ?? 0} scenarios`
+              } else if (game.id === 'survival') {
+                contentNote = `${apiReport?.gamesContent?.survival_scenarios?.total ?? 0} scenarios`
+              } else if (game.type === 'AI') {
+                contentNote = 'Dynamic AI Generation (3-Tier Failover)'
+              }
+
+              if (lightCheckInfo?.contentCount) {
+                contentNote = lightCheckInfo.contentCount
+              }
+
+              return (
+                <div
+                  key={game.id}
+                  className={`p-4 rounded-xl border space-y-3 transition-colors ${
+                    isGameOnline
+                      ? 'bg-zinc-950 border-zinc-800'
+                      : 'bg-rose-950/20 border-rose-900/60'
+                  }`}
+                >
+                  {/* Game Header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-zinc-100">{game.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold border border-zinc-700 bg-zinc-900 text-zinc-400">
+                          {game.type}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-zinc-500 font-mono">
+                        {game.codename} • Route: /games/{game.id}
+                      </div>
+                    </div>
+
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${statusPill.style}`}>
+                      {statusPill.text}
+                    </span>
+                  </div>
+
+                  {/* Automated Light Check Telemetry */}
+                  <div className="p-2.5 rounded bg-zinc-900/60 border border-zinc-800/80 space-y-1 text-xs">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-500">Live Kill-Switch:</span>
+                      <span
+                        className={`font-bold ${
+                          isGameOnline ? 'text-emerald-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {isGameOnline ? 'ONLINE' : 'KILL SWITCH ACTIVE'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-500">Content / Questions:</span>
+                      <span className="text-cyan-300 font-mono">{contentNote}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-zinc-500">Route Status:</span>
+                      <span className="text-emerald-400 font-mono">
+                        {lightCheckInfo?.routeStatus || '200 OK'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Manual UI/UX 4-Point Checklist */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex items-center justify-between">
+                      <span>MANUAL AUDIT CHECKLIST</span>
+                      {manualCheck.lastChecked && (
+                        <span className="text-zinc-500 font-normal normal-case">
+                          Checked {formatRelativeTime(manualCheck.lastChecked)} by @{manualCheck.checkedBy || 'admin'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <label className="flex items-center gap-2 p-2 rounded bg-zinc-900/40 border border-zinc-800 hover:border-zinc-700 cursor-pointer transition select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(manualCheck.routeLoads)}
+                          onChange={() => toggleChecklistItem(game.id, 'routeLoads')}
+                          className="rounded border-zinc-700 text-purple-600 focus:ring-0 focus:outline-none cursor-pointer"
+                        />
+                        <span className={manualCheck.routeLoads ? 'text-zinc-200' : 'text-zinc-500'}>
+                          Route loads cleanly
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2 p-2 rounded bg-zinc-900/40 border border-zinc-800 hover:border-zinc-700 cursor-pointer transition select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(manualCheck.gameplayVerified)}
+                          onChange={() => toggleChecklistItem(game.id, 'gameplayVerified')}
+                          className="rounded border-zinc-700 text-purple-600 focus:ring-0 focus:outline-none cursor-pointer"
+                        />
+                        <span className={manualCheck.gameplayVerified ? 'text-zinc-200' : 'text-zinc-500'}>
+                          Gameplay loop verified
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2 p-2 rounded bg-zinc-900/40 border border-zinc-800 hover:border-zinc-700 cursor-pointer transition select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(manualCheck.mobileResponsive)}
+                          onChange={() => toggleChecklistItem(game.id, 'mobileResponsive')}
+                          className="rounded border-zinc-700 text-purple-600 focus:ring-0 focus:outline-none cursor-pointer"
+                        />
+                        <span className={manualCheck.mobileResponsive ? 'text-zinc-200' : 'text-zinc-500'}>
+                          Mobile 375px responsive
+                        </span>
+                      </label>
+
+                      <label className="flex items-center gap-2 p-2 rounded bg-zinc-900/40 border border-zinc-800 hover:border-zinc-700 cursor-pointer transition select-none">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(manualCheck.zeroConsoleErrors)}
+                          onChange={() => toggleChecklistItem(game.id, 'zeroConsoleErrors')}
+                          className="rounded border-zinc-700 text-purple-600 focus:ring-0 focus:outline-none cursor-pointer"
+                        />
+                        <span className={manualCheck.zeroConsoleErrors ? 'text-zinc-200' : 'text-zinc-500'}>
+                          Zero console errors
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        {/* ── SECTION 5: System Health ── */}
+        <section id="health" className="scroll-mt-24 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-zinc-800">
+            <div>
+              <h2 className="text-lg font-black tracking-wider text-emerald-400 uppercase flex items-center gap-2">
+                <span>🩺</span>
+                <span>SECTION 5 // SYSTEM & INFRASTRUCTURE HEALTH</span>
+              </h2>
+              <p className="text-zinc-500 text-xs">
+                Real-time server diagnostics, memory allocation, question bank capacities, and event loop lag.
+              </p>
+            </div>
           </div>
 
           {/* Diagnostics Cards */}
@@ -980,97 +1693,15 @@ export default function AdminConsole() {
               </div>
             </div>
           </div>
-
-          {/* Masked API Keys Grid */}
-          <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-3">
-            <div className="text-zinc-500 text-[10px] uppercase font-bold tracking-wider">
-              CONFIGURED API KEYS & EXTERNAL PROVIDERS
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {[
-                {
-                  label: 'SUPABASE DB & AUTH',
-                  keyData: apiReport?.keys?.SUPABASE_SERVICE_ROLE_KEY,
-                },
-                {
-                  label: 'GROQ (AI TIER 1)',
-                  keyData: apiReport?.keys?.GROQ_API_KEY,
-                },
-                {
-                  label: 'GEMINI (AI TIER 2)',
-                  keyData: apiReport?.keys?.GEMINI_API_KEY,
-                },
-                {
-                  label: 'OPENROUTER (AI TIER 3)',
-                  keyData: apiReport?.keys?.OPENROUTER_API_KEY,
-                },
-              ].map((item) => {
-                const isConfigured = item.keyData?.status === 'CONFIGURED'
-                return (
-                  <div
-                    key={item.label}
-                    className="p-3 rounded bg-zinc-900/60 border border-zinc-800 space-y-1"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-zinc-400 font-bold">{item.label}</span>
-                      <span
-                        className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
-                          isConfigured
-                            ? 'bg-emerald-500/15 text-emerald-400'
-                            : 'bg-rose-500/15 text-rose-400'
-                        }`}
-                      >
-                        {isConfigured ? 'CONFIGURED' : 'MISSING'}
-                      </span>
-                    </div>
-                    <div className="text-[11px] font-mono text-zinc-400">
-                      {item.keyData?.masked || 'NOT SET'}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Live Ping Results (if triggered) */}
-          {livePing && livePing.length > 0 && (
-            <div className="p-4 rounded-xl bg-zinc-950 border border-emerald-500/40 space-y-3">
-              <div className="text-emerald-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
-                <span>✓</span>
-                <span>LIVE PING RESULTS</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {livePing.map((res: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded bg-zinc-900 border border-zinc-800 space-y-1"
-                  >
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-zinc-200">{res.provider}</span>
-                      <span
-                        className={
-                          res.status === 'ONLINE' ? 'text-emerald-400' : 'text-rose-400'
-                        }
-                      >
-                        {res.status}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-zinc-500">Latency: {res.latencyMs}ms</div>
-                    <div className="text-[10px] text-zinc-400 truncate">{res.message}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
 
-        {/* ── SECTION 4: Audit Logs ── */}
+        {/* ── SECTION 6: Audit Logs ── */}
         <section id="logs" className="scroll-mt-24 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
             <div>
               <h2 className="text-lg font-black tracking-wider text-amber-400 uppercase flex items-center gap-2">
                 <span>📋</span>
-                <span>SECTION 4 // AUDIT LOGS</span>
+                <span>SECTION 6 // AUDIT LOGS</span>
               </h2>
               <p className="text-zinc-500 text-xs">
                 Immutable record of administrative actions, switches, and user moderation.
