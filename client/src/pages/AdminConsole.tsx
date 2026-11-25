@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Component, useState, useEffect, useCallback, type ReactNode, type ErrorInfo } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, getApiErrorMessage } from '../lib/apiClient'
 import { useAuth } from '../context/AuthContext'
@@ -27,6 +27,45 @@ const ALL_GAMES = [
   { id: 'signal_sync', name: 'Signal Sync', codename: 'RHYTHM_FREQ', type: 'ARCADE' },
   { id: 'overclock', name: 'Overclock', codename: 'CPU_MELTDOWN', type: 'ARCADE' },
 ]
+
+/**
+ * Scoped fault boundary for the console body. If any console panel throws
+ * during render, we surface a loud red terminal panel instead of silently
+ * rendering an empty (blank) content area. Keeps the top nav alive so the
+ * admin can reload data or navigate away.
+ */
+class ConsoleSectionBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[AdminConsole] Content render fault:', error, info)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="p-6 rounded-2xl bg-red-950/95 border-2 border-red-500 shadow-[0_0_60px_rgba(255,0,0,0.5)] text-red-100 font-mono space-y-3">
+        <div className="text-base sm:text-lg font-black text-red-400 uppercase tracking-widest">
+          ⚠️ CONSOLE RENDER FAULT
+        </div>
+        <p className="text-xs text-red-300/80 break-all leading-relaxed">
+          {this.state.error.message || 'Unknown render error'}
+        </p>
+        <button
+          type="button"
+          onClick={() => this.setState({ error: null })}
+          className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider cursor-pointer transition"
+        >
+          RETRY RENDER ↻
+        </button>
+      </div>
+    )
+  }
+}
 
 export default function AdminConsole() {
   const { user, loading } = useAuth()
@@ -331,7 +370,7 @@ export default function AdminConsole() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-cyan-500 font-mono text-center select-none">
+      <div className="relative z-10 min-h-screen bg-black flex flex-col items-center justify-center p-6 text-cyan-500 font-mono text-center select-none">
         <div className="text-xl sm:text-2xl font-black uppercase tracking-[0.25em] animate-pulse">
           INITIALIZING OVERLORD PROTOCOLS...
         </div>
@@ -351,7 +390,7 @@ export default function AdminConsole() {
 
   if (!user || !isOwnerUser) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-red-500 font-mono text-center select-none">
+      <div className="relative z-10 min-h-screen bg-black flex flex-col items-center justify-center p-6 text-red-500 font-mono text-center select-none">
         <div className="text-xl sm:text-2xl font-black uppercase tracking-[0.2em]">
           ACCESS DENIED: CLEARANCE LEVEL TOO LOW.
         </div>
@@ -369,7 +408,7 @@ export default function AdminConsole() {
   }
 
   return (
-    <div className="min-h-screen w-full overflow-x-clip bg-black text-zinc-100 font-mono text-xs sm:text-sm selection:bg-rose-500 selection:text-white pb-36">
+    <div className="relative z-10 min-h-screen w-full overflow-x-clip bg-black text-zinc-100 font-mono text-xs sm:text-sm selection:bg-rose-500 selection:text-white pb-36">
       {/* ── Fixed Top Navigation & Quick Anchors ── */}
       <nav className="sticky top-0 z-50 bg-zinc-950/95 border-b border-zinc-800 backdrop-blur-md px-4 py-3 sm:px-8">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -451,6 +490,7 @@ export default function AdminConsole() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 space-y-12">
+        <ConsoleSectionBoundary>
         {/* ── Massive System Panic Red Neon Box (if backend fails or returns HTML) ── */}
         {errorMsg && (
           <div className="p-6 rounded-2xl bg-red-950/95 border-2 border-red-500 shadow-[0_0_60px_rgba(255,0,0,0.7)] text-red-100 font-mono space-y-3">
@@ -1074,6 +1114,7 @@ export default function AdminConsole() {
             )}
           </div>
         </section>
+        </ConsoleSectionBoundary>
       </div>
     </div>
   )
