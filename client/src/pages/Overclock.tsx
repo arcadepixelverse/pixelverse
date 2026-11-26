@@ -22,7 +22,6 @@ export function Overclock() {
   const { refreshQuota, syncPlaySession } = useAuth()
   const [gameState, setGameState] = useState<'idle' | 'running' | 'meltdown' | 'extracted'>('idle')
   const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
-  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState<boolean>(false)
   const [heat, setHeat] = useState<number>(0) // 0 to 100%
   const [multiplier, setMultiplier] = useState<number>(1.0)
@@ -59,33 +58,75 @@ export function Overclock() {
   const bankCountRef = useRef<number>(0)
   const gameStateRef = useRef<'idle' | 'running' | 'meltdown' | 'extracted'>('idle')
   const lastSirenTimeRef = useRef<number>(0)
+  const playSessionIdRef = useRef<string | null>(null)
+  const isSubmittingScoreRef = useRef<boolean>(false)
 
   gameStateRef.current = gameState
 
-  // Submit score to global leaderboard
+  // Submit score to global leaderboard with session refresh retry
   const submitScore = async (scoreToSubmit: number) => {
-    if (scoreToSubmit <= 0) return
+    if (scoreToSubmit <= 0 || isSubmittingScoreRef.current) return
+    isSubmittingScoreRef.current = true
     setLeaderboardStatus('Transmitting reactor telemetry...')
     try {
-      const res = await apiFetch('/api/leaderboard/overclock', {
+      let sessionId = playSessionIdRef.current
+      if (!sessionId) {
+        // Fetch a fresh session if none currently tracked
+        const startRes = await apiFetch('/api/games/overclock/start', { method: 'POST' })
+        if (startRes.ok) {
+          const startData = await startRes.json()
+          sessionId = startData.playSessionId || null
+          playSessionIdRef.current = sessionId
+          syncPlaySession(startData)
+        }
+      }
+
+      let res = await apiFetch('/api/leaderboard/overclock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: scoreToSubmit, playSessionId }),
+        body: JSON.stringify({ score: scoreToSubmit, playSessionId: sessionId }),
       })
+
+      // If session was invalid, expired, or already consumed, fetch fresh session and retry ONCE
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'INVALID_PLAY_SESSION') {
+          const refreshRes = await apiFetch('/api/games/overclock/start', { method: 'POST' })
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json()
+            const freshSessionId = refreshData.playSessionId || null
+            playSessionIdRef.current = freshSessionId
+            syncPlaySession(refreshData)
+
+            res = await apiFetch('/api/leaderboard/overclock', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ score: scoreToSubmit, playSessionId: freshSessionId }),
+            })
+          }
+        }
+      }
+
       if (res.ok) {
         setLeaderboardStatus('✓ Telemetry logged in Global Leaderboard!')
+        playSessionIdRef.current = null
       } else {
         setLeaderboardStatus('Score saved locally.')
       }
     } catch {
       setLeaderboardStatus('Score saved locally.')
     } finally {
+      isSubmittingScoreRef.current = false
       refreshQuota().catch(() => {})
     }
   }
 
+  const submitScoreRef = useRef(submitScore)
+  submitScoreRef.current = submitScore
+
   // Trigger Meltdown
   const triggerMeltdown = useCallback(() => {
+    if (gameStateRef.current !== 'running') return
     playError()
     gameStateRef.current = 'meltdown'
     setGameState('meltdown')
@@ -101,7 +142,7 @@ export function Overclock() {
 
     // Final score is whatever was already secured in bank
     const finalSecured = bankedScoreRef.current
-    submitScore(finalSecured)
+    submitScoreRef.current(finalSecured)
   }, [])
 
   // Safely Extract Banked Points and Conclude Run
@@ -124,7 +165,7 @@ export function Overclock() {
       animationFrameRef.current = null
     }
 
-    submitScore(finalTotal)
+    submitScoreRef.current(finalTotal)
   }
 
   // Start or Reboot Game
@@ -146,7 +187,7 @@ export function Overclock() {
 
       const data = await res.json()
       if (data.playSessionId) {
-        setPlaySessionId(data.playSessionId)
+        playSessionIdRef.current = data.playSessionId
       }
       syncPlaySession(data)
 

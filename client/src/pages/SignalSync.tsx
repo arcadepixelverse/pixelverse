@@ -59,7 +59,6 @@ export function SignalSync() {
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'gameover'>('idle')
   const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
-  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState<boolean>(false)
   const [hits, setHits] = useState<number>(0)
   const [finalScore, setFinalScore] = useState<number>(0)
@@ -97,30 +96,75 @@ export function SignalSync() {
   const hitsRef = useRef<number>(0)
   const difficultyRef = useRef<Difficulty>(difficulty)
   difficultyRef.current = difficulty
+  const gameStateRef = useRef<'idle' | 'playing' | 'gameover'>('idle')
+  gameStateRef.current = gameState
+  const playSessionIdRef = useRef<string | null>(null)
+  const isSubmittingScoreRef = useRef<boolean>(false)
 
-  // Post high score to leaderboard
+  // Post high score to leaderboard with session refresh retry
   const submitScore = async (scoreToSubmit: number, currentDiff: Difficulty) => {
-    if (scoreToSubmit <= 0) return
+    if (scoreToSubmit <= 0 || isSubmittingScoreRef.current) return
+    isSubmittingScoreRef.current = true
     setLeaderboardStatus('Transmitting resonance data to Leaderboard...')
     try {
-      const res = await apiFetch('/api/leaderboard/signal_sync', {
+      let sessionId = playSessionIdRef.current
+      if (!sessionId) {
+        // Request a fresh play session first if none currently tracked
+        const startRes = await apiFetch('/api/games/signal-sync/start', { method: 'POST' })
+        if (startRes.ok) {
+          const startData = await startRes.json()
+          sessionId = startData.playSessionId || null
+          playSessionIdRef.current = sessionId
+          syncPlaySession(startData)
+        }
+      }
+
+      let res = await apiFetch('/api/leaderboard/signal_sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId }),
+        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId: sessionId }),
       })
+
+      // If the session was invalid/expired/already consumed, request a fresh session and retry ONCE
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'INVALID_PLAY_SESSION') {
+          const refreshRes = await apiFetch('/api/games/signal-sync/start', { method: 'POST' })
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json()
+            const freshSessionId = refreshData.playSessionId || null
+            playSessionIdRef.current = freshSessionId
+            syncPlaySession(refreshData)
+
+            res = await apiFetch('/api/leaderboard/signal_sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId: freshSessionId }),
+            })
+          }
+        }
+      }
+
       if (res.ok) {
         setLeaderboardStatus('✓ Harmonic sync logged in Global Leaderboard!')
+        playSessionIdRef.current = null
       } else {
         setLeaderboardStatus('Score saved locally.')
       }
     } catch {
       setLeaderboardStatus('Score saved locally.')
     } finally {
+      isSubmittingScoreRef.current = false
       refreshQuota().catch(() => {})
     }
   }
 
+  const submitScoreRef = useRef(submitScore)
+  submitScoreRef.current = submitScore
+
   const triggerGameOver = useCallback(() => {
+    if (gameStateRef.current !== 'playing') return
+    gameStateRef.current = 'gameover'
     playRhythmTone('gameover')
     setHitFeedback('MISS')
 
@@ -133,7 +177,7 @@ export function SignalSync() {
     const calculated = Math.round(hitsRef.current * 100 * multiplier)
     setFinalScore(calculated)
     setGameState('gameover')
-    submitScore(calculated, difficultyRef.current)
+    submitScoreRef.current(calculated, difficultyRef.current)
   }, [])
 
   // Start / Reboot
@@ -155,7 +199,7 @@ export function SignalSync() {
 
       const data = await res.json()
       if (data.playSessionId) {
-        setPlaySessionId(data.playSessionId)
+        playSessionIdRef.current = data.playSessionId
       }
       syncPlaySession(data)
 
@@ -182,6 +226,7 @@ export function SignalSync() {
       directionRef.current = 1
       speedRef.current = initialSpeed
 
+      gameStateRef.current = 'playing'
       setGameState('playing')
       lastTimeRef.current = performance.now()
     } catch (err) {
@@ -231,7 +276,7 @@ export function SignalSync() {
 
   // Player Trigger (Space / Click / Touch)
   const handleTrigger = useCallback(() => {
-    if (gameState !== 'playing') return
+    if (gameStateRef.current !== 'playing') return
 
     const currentPos = dotPosRef.current
     const center = targetCenterRef.current
@@ -278,23 +323,23 @@ export function SignalSync() {
       // MISSED OUTSIDE TARGET ZONE -> GAME OVER
       triggerGameOver()
     }
-  }, [gameState, triggerGameOver])
+  }, [triggerGameOver])
 
   // Keyboard Space listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         e.preventDefault()
-        if (gameState === 'playing') {
+        if (gameStateRef.current === 'playing') {
           handleTrigger()
-        } else if (gameState === 'idle' || gameState === 'gameover') {
+        } else if (gameStateRef.current === 'idle' || gameStateRef.current === 'gameover') {
           startGame()
         }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [gameState, handleTrigger])
+  }, [handleTrigger])
 
   const multiplier = DIFFICULTY_MULTIPLIERS[difficulty]
 

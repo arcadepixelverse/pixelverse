@@ -109,7 +109,6 @@ export function CyberSprint() {
   const [difficulty, setDifficulty] = useState<Difficulty>('medium')
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'gameover'>('idle')
   const [isGameDisabled, setIsGameDisabled] = useState<boolean>(false)
-  const [playSessionId, setPlaySessionId] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState<boolean>(false)
   const [baseScore, setBaseScore] = useState<number>(0)
   const [finalScore, setFinalScore] = useState<number>(0)
@@ -155,45 +154,87 @@ export function CyberSprint() {
   maxStreakRef.current = maxStreak
   const gameStateRef = useRef<'idle' | 'playing' | 'gameover'>('idle')
   gameStateRef.current = gameState
+  const playSessionIdRef = useRef<string | null>(null)
+  const isSubmittingScoreRef = useRef<boolean>(false)
 
-  // Submit high score to backend leaderboard
+  // Submit high score to backend leaderboard with session refresh retry
   const submitScore = async (scoreToSubmit: number, currentDiff: Difficulty) => {
-    if (scoreToSubmit <= 0) return
+    if (scoreToSubmit <= 0 || isSubmittingScoreRef.current) return
+    isSubmittingScoreRef.current = true
     setLeaderboardStatus('Transmitting score to Global Hall of Fame...')
     try {
-      const res = await apiFetch('/api/leaderboard/cyber_sprint', {
+      let sessionId = playSessionIdRef.current
+      if (!sessionId) {
+        // Request a fresh play session first if none currently tracked
+        const startRes = await apiFetch('/api/games/cyber-sprint/start', { method: 'POST' })
+        if (startRes.ok) {
+          const startData = await startRes.json()
+          sessionId = startData.playSessionId || null
+          playSessionIdRef.current = sessionId
+          syncPlaySession(startData)
+        }
+      }
+
+      let res = await apiFetch('/api/leaderboard/cyber_sprint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId }),
+        body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId: sessionId }),
       })
+
+      // If the session was invalid/expired/already consumed, request a fresh session and retry ONCE
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}))
+        if (errJson?.error === 'INVALID_PLAY_SESSION') {
+          const refreshRes = await apiFetch('/api/games/cyber-sprint/start', { method: 'POST' })
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json()
+            const freshSessionId = refreshData.playSessionId || null
+            playSessionIdRef.current = freshSessionId
+            syncPlaySession(refreshData)
+
+            res = await apiFetch('/api/leaderboard/cyber_sprint', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ score: scoreToSubmit, difficulty: currentDiff, playSessionId: freshSessionId }),
+            })
+          }
+        }
+      }
+
       if (res.ok) {
         setLeaderboardStatus('✓ Score transmitted to Global Leaderboard!')
+        playSessionIdRef.current = null
       } else {
         setLeaderboardStatus('Score recorded locally.')
       }
     } catch {
       setLeaderboardStatus('Score recorded locally.')
     } finally {
+      isSubmittingScoreRef.current = false
       refreshQuota().catch(() => {})
     }
   }
 
+  const submitScoreRef = useRef(submitScore)
+  submitScoreRef.current = submitScore
+
   // Trigger Game Over
   const triggerGameOver = useCallback((rawBaseScore: number, currentDiff: Difficulty) => {
+    if (gameStateRef.current !== 'playing') return
+    gameStateRef.current = 'gameover'
     playSound('gameover')
     const multiplier = DIFFICULTY_MULTIPLIERS[currentDiff]
     const calculatedFinal = Math.round(rawBaseScore * multiplier)
 
     setFinalScore(calculatedFinal)
     setGameState('gameover')
-    gameStateRef.current = 'gameover'
 
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
       animationFrameRef.current = null
     }
 
-    submitScore(calculatedFinal, currentDiff)
+    submitScoreRef.current(calculatedFinal, currentDiff)
   }, [])
 
   // Start or Reboot Game
@@ -215,7 +256,7 @@ export function CyberSprint() {
 
       const data = await res.json()
       if (data.playSessionId) {
-        setPlaySessionId(data.playSessionId)
+        playSessionIdRef.current = data.playSessionId
       }
       syncPlaySession(data)
 
